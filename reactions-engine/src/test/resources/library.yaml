@@ -1,0 +1,30 @@
+reaction:
+  engine:
+    scopes:
+      persistent: persistscope
+      transient: transientscope
+      
+persistence:
+  scopes:
+    - persistscope
+    - transientscope
+  scope-persistscope:
+    structures:
+    - _dqconfig_meta_:
+        type: com.diamondq.common.model.persistence.PropertiesFilePersistenceLayer
+      structureDir: "data-persist"
+    resources:
+    - _dqconfig_meta_:
+        type: com.diamondq.common.model.persistence.ResourceBundlePersistenceLayer
+      resourceBaseName: com.diamondq.common.reaction.engine.EngineImpl
+  
+  scope-transientscope:
+    structures:
+    - _dqconfig_meta_:
+        type: com.diamondq.common.model.persistence.NewMemoryPersistenceLayer
+      structureDir: "data-transient"
+    resources:
+    - _dqconfig_meta_:
+        type: com.diamondq.common.model.persistence.ResourceBundlePersistenceLayer
+      resourceBaseName: com.diamondq.common.reaction.engine.EngineImpl
+  
