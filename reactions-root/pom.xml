@@ -290,5 +290,7 @@
 		<module>../reactions-bom</module>
 		<module>../reactions-api</module>
 		<module>../reactions-engine</module>
+		<module>../reactions-jobs-common</module>
+		<module>../reactions-jobs-network</module>
 	</modules>
 </project>
