@@ -3,6 +3,7 @@ package com.diamondq.reactions.network.arp;
 import com.diamondq.reactions.api.ConfigureReaction;
 import com.diamondq.reactions.api.JobContext;
 import com.diamondq.reactions.network.arp.ArpParser.ArpParserParams;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Multimap;
@@ -25,7 +26,6 @@ import javax.inject.Inject;
 
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jboss.weld.util.collections.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

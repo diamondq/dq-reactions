@@ -1,16 +1,17 @@
 package com.diamondq.reactions.common.process;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jboss.weld.util.collections.ImmutableList;
 
 /**
  * The ProcessLauncher represents the commands necessary to execute a process
@@ -88,7 +89,7 @@ public class ProcessLauncher {
 	 * @param pArguments the arguments
 	 */
 	public ProcessLauncher(@NonNull ProcessArgument... pArguments) {
-		mArguments = ImmutableList.<@NonNull ProcessArgument> builder().addAll(pArguments).build();
+		mArguments = ImmutableList.<@NonNull ProcessArgument> builder().addAll(Arrays.asList(pArguments)).build();
 	}
 
 	/**
