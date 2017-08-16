@@ -16,7 +16,7 @@ persistence:
     resources:
     - _dqconfig_meta_:
         type: com.diamondq.common.model.persistence.ResourceBundlePersistenceLayer
-      resourceBaseName: com.diamondq.common.reaction.engine.EngineImpl
+      resourceBaseName: com.diamondq.reactions.engine.EngineImpl
   
   scope-transientscope:
     structures:
@@ -26,5 +26,5 @@ persistence:
     resources:
     - _dqconfig_meta_:
         type: com.diamondq.common.model.persistence.ResourceBundlePersistenceLayer
-      resourceBaseName: com.diamondq.common.reaction.engine.EngineImpl
+      resourceBaseName: com.diamondq.reactions.engine.EngineImpl
   
