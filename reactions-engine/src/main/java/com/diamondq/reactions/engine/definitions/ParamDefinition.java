@@ -78,4 +78,36 @@ public class ParamDefinition<T> {
 		}, "shortName");
 	}
 
+	/**
+	 * @see java.lang.Object#toString()
+	 */
+	@Override
+	public String toString() {
+		return getIdentifier();
+	}
+
+	/**
+	 * Returns a string that can be used to identify this parameter. It's usually used as part of an error message.
+	 * 
+	 * @return the identifier.
+	 */
+	public String getIdentifier() {
+		StringBuilder sb = new StringBuilder();
+		if (name != null) {
+			sb.append(name);
+			sb.append('/');
+		}
+		sb.append(clazz.getSimpleName());
+		boolean isFirst = true;
+		for (StateCriteria sc : requiredStates) {
+			if (isFirst == true) {
+				isFirst = false;
+				sb.append('?');
+			}
+			else
+				sb.append('&');
+			sb.append(sc.getIdentifier());
+		}
+		return sb.toString();
+	}
 }

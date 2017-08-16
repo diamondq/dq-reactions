@@ -24,4 +24,11 @@ public class StateCriteria {
 		return sb.toString();
 	}
 
+	public String getIdentifier() {
+		StringBuilder sb = new StringBuilder();
+		if (isEqual == false)
+			sb.append('!');
+		sb.append(state);
+		return sb.toString();
+	}
 }

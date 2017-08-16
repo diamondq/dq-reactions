@@ -7,7 +7,7 @@ import java.util.Map;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-public interface Engine {
+public interface ReactionsEngine {
 
 	/**
 	 * Issue a request to retrieve a result. The result requested is based on the result class. All @ConfigureReaction's

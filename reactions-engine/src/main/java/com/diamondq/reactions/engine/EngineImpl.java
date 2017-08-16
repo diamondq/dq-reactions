@@ -4,13 +4,15 @@ import com.diamondq.common.config.Config;
 import com.diamondq.common.lambda.future.ExtendedCompletableFuture;
 import com.diamondq.common.model.interfaces.Toolkit;
 import com.diamondq.reactions.api.Action;
-import com.diamondq.reactions.api.Engine;
-import com.diamondq.reactions.api.EngineInitializedEvent;
 import com.diamondq.reactions.api.JobContext;
 import com.diamondq.reactions.api.JobDefinition;
 import com.diamondq.reactions.api.JobInfo;
 import com.diamondq.reactions.api.JobParamsBuilder;
-import com.diamondq.reactions.api.MissingDependentException;
+import com.diamondq.reactions.api.ReactionsEngine;
+import com.diamondq.reactions.api.ReactionsEngineInitializedEvent;
+import com.diamondq.reactions.api.errors.AbstractReactionsException;
+import com.diamondq.reactions.api.errors.AbstractReactionsNotErrorException;
+import com.diamondq.reactions.api.errors.ReactionsMissingDependentException;
 import com.diamondq.reactions.api.impl.StateCriteria;
 import com.diamondq.reactions.api.impl.StateValueCriteria;
 import com.diamondq.reactions.api.impl.StateVariableCriteria;
@@ -23,6 +25,7 @@ import com.diamondq.reactions.engine.evals.ActionNode;
 import com.diamondq.reactions.engine.evals.NameNode;
 import com.diamondq.reactions.engine.evals.TypeNode;
 import com.diamondq.reactions.engine.evals.VariableNameNode;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -31,10 +34,12 @@ import com.google.common.collect.Sets;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ExecutorService;
@@ -55,7 +60,7 @@ import org.slf4j.LoggerFactory;
 import net.jodah.typetools.TypeResolver;
 
 @ApplicationScoped
-public class EngineImpl implements Engine {
+public class EngineImpl implements ReactionsEngine {
 
 	private static final Logger									sLogger				=
 		LoggerFactory.getLogger(EngineImpl.class);
@@ -86,11 +91,11 @@ public class EngineImpl implements Engine {
 
 	private final ExecutorService								mExecutorService;
 
-	private final Event<EngineInitializedEvent>					mInitializedEvent;
+	private final Event<ReactionsEngineInitializedEvent>		mInitializedEvent;
 
 	@Inject
 	public EngineImpl(Toolkit pToolkit, Config pConfig, ExecutorService pExecutorService,
-		CDIObservingExtension pExtension, Event<EngineInitializedEvent> pInitializedEvent) {
+		CDIObservingExtension pExtension, Event<ReactionsEngineInitializedEvent> pInitializedEvent) {
 		mTriggers = Maps.newConcurrentMap();
 		mResultTree = Maps.newConcurrentMap();
 		mExecutorService = pExecutorService;
@@ -131,13 +136,13 @@ public class EngineImpl implements Engine {
 
 		}
 
-		sLogger.debug("Firing EngineInitializedEvent...");
+		sLogger.debug("Firing ReactionsEngineInitializedEvent...");
 
-		mInitializedEvent.fire(new EngineInitializedEvent());
+		mInitializedEvent.fire(new ReactionsEngineInitializedEvent());
 	}
 
 	/**
-	 * @see com.diamondq.reactions.api.Engine
+	 * @see com.diamondq.reactions.api.ReactionsEngine
 	 */
 	@Override
 	public <T extends JobInfo<?, ? extends JobParamsBuilder>> T findMandatoryJob(Class<T> pJobInfoClass) {
@@ -224,7 +229,7 @@ public class EngineImpl implements Engine {
 	}
 
 	/**
-	 * @see com.diamondq.reactions.api.Engine#submit(java.lang.Class)
+	 * @see com.diamondq.reactions.api.ReactionsEngine#submit(java.lang.Class)
 	 */
 	@Override
 	public <T> @NonNull ExtendedCompletableFuture<T> submit(@NonNull Class<T> pResultClass) {
@@ -232,7 +237,7 @@ public class EngineImpl implements Engine {
 	}
 
 	/**
-	 * @see com.diamondq.reactions.api.Engine#submit(com.diamondq.reactions.api.JobInfo,
+	 * @see com.diamondq.reactions.api.ReactionsEngine#submit(com.diamondq.reactions.api.JobInfo,
 	 *      com.diamondq.reactions.api.JobParamsBuilder)
 	 */
 	@Override
@@ -252,7 +257,7 @@ public class EngineImpl implements Engine {
 	}
 
 	/**
-	 * @see com.diamondq.reactions.api.Engine#addToCollection(java.lang.Object,
+	 * @see com.diamondq.reactions.api.ReactionsEngine#addToCollection(java.lang.Object,
 	 *      com.diamondq.reactions.api.Action, java.lang.String, java.util.Map)
 	 */
 	@Override
@@ -307,16 +312,16 @@ public class EngineImpl implements Engine {
 
 			@Override
 			public void run() {
-				sLogger.debug("Calling executeIfDepends from submit(JobRequest)");
+				sLogger.trace("Calling executeIfDepends from submit(JobRequest)");
 				executeIfDepends(pJob, result);
 			}
 		}, mExecutorService).whenComplete((v, ex) -> {
 			if (ex != null) {
-				sLogger.debug("submitJob(" + pJob.jobDefinition.getShortName() + ") failed", ex);
+				sLogger.trace("", ex);
 				result.completeExceptionally(ex);
 				return;
 			}
-			sLogger.debug("submit({}) completed", pJob.jobDefinition.getShortName());
+			sLogger.trace("submit({}) completed", pJob.jobDefinition.getShortName());
 		});
 		return result;
 	}
@@ -330,113 +335,164 @@ public class EngineImpl implements Engine {
 	 */
 	private <RESULT> void executeIfDepends(JobRequest pJob, ExtendedCompletableFuture<RESULT> pResult) {
 
-		sLogger.debug("executeIfDepends: {}", pJob.jobDefinition.getShortName());
+		if (sLogger.isDebugEnabled() == true)
+			sLogger.debug("executeIfDepends: {}", pJob.getIdentifier());
 
-		List<Object> dependents = Lists.newArrayList();
+		List<@Nullable Object> dependents = Lists.newArrayList();
 		for (ParamDefinition<?> param : pJob.jobDefinition.params) {
-			Object dependent = null;
-			if (param.valueByVariable != null) {
+
+			DependentInfo queriedDependentInfo = pJob.executingByParam.get(param);
+			if (queriedDependentInfo == null) {
+				DependentInfo newDependentInfo = new DependentInfo();
+				if ((queriedDependentInfo = pJob.executingByParam.putIfAbsent(param, newDependentInfo)) == null)
+					queriedDependentInfo = newDependentInfo;
+			}
+
+			final DependentInfo dependentInfo = queriedDependentInfo;
+
+			/* Use a job variable if present */
+
+			if ((dependentInfo.isResolved == false) && (param.valueByVariable != null)) {
 				String value = pJob.variables.get(param.valueByVariable);
 				if (param.clazz.equals(String.class) == false)
 					throw new IllegalStateException(
 						"Only a param of String.class is allowed to use the valueByVariable");
-				dependent = value;
+				dependentInfo.resolvedValue = value;
+				dependentInfo.isResolved = true;
 			}
+
+			/* If there is a valueByInput, then use that */
+
 			Function<JobParamsBuilder, ?> valueByInput = param.valueByInput;
 			JobParamsBuilder paramsBuilder = pJob.paramsBuilder;
-			if ((dependent == null) && (valueByInput != null) && (paramsBuilder != null)) {
-				dependent = valueByInput.apply(paramsBuilder);
+			if ((dependentInfo.isResolved == false) && (valueByInput != null) && (paramsBuilder != null)) {
+				dependentInfo.resolvedValue = valueByInput.apply(paramsBuilder);
+				dependentInfo.isResolved = true;
 			}
-			if (dependent == null) {
+
+			/* Try looking for a transient or persistent storage for this param */
+
+			if (dependentInfo.isResolved == false) {
 				if (param.persistent != null) {
 					Store store = (param.persistent == true ? mPersistentStore : mTransientStore);
 					Set<Object> storeDependents = store.resolve(param);
 					// TODO: For now, just take the first
-					if (storeDependents.isEmpty() == false)
-						dependent = storeDependents.iterator().next();
+					if (storeDependents.isEmpty() == false) {
+						dependentInfo.resolvedValue = storeDependents.iterator().next();
+						dependentInfo.isResolved = true;
+					}
 				}
 				else {
 					Set<Object> storeDependents = mTransientStore.resolve(param);
 					// TODO: For now, just take the first
-					if (storeDependents.isEmpty() == false)
-						dependent = storeDependents.iterator().next();
-					if (dependent == null) {
+					if (storeDependents.isEmpty() == false) {
+						dependentInfo.resolvedValue = storeDependents.iterator().next();
+						dependentInfo.isResolved = true;
+					}
+					if (dependentInfo.isResolved == false) {
 						storeDependents = mPersistentStore.resolve(param);
 						// TODO: For now, just take the first
-						if (storeDependents.isEmpty() == false)
-							dependent = storeDependents.iterator().next();
+						if (storeDependents.isEmpty() == false) {
+							dependentInfo.resolvedValue = storeDependents.iterator().next();
+							dependentInfo.isResolved = true;
+						}
 					}
 				}
 			}
-			if (dependent == null) {
 
-				/* Find the list of jobs that can produce it */
+			/* Finally, try to see if there is a job */
 
-				Set<JobRequest> possibleJobs = resolveParams(param);
-				JobRequest bestJob = sortJobs(possibleJobs);
-				if (bestJob == null) {
-					StringBuilder sb = new StringBuilder();
-					sb.append("The job ");
-					sb.append(pJob.jobDefinition.getShortName());
-					sb.append(" can never be executed because there are no solution on how to construct the param ");
-					sb.append(param.getShortName());
-					sLogger.warn(sb.toString());
-					throw new MissingDependentException(sb.toString());
+			if (dependentInfo.isResolved == false) {
+
+				/* If we haven't already searched the jobs, then do so now */
+
+				if (dependentInfo.currentJob == -1) {
+
+					/* Find the list of jobs that can produce it */
+
+					Set<JobRequest> possibleJobs = resolveParams(param);
+					List<@NonNull JobRequest> bestJobs = sortJobs(possibleJobs);
+					dependentInfo.jobs = ImmutableList.copyOf(bestJobs);
 				}
 
-				/* Execute the job */
+				/* See if there is an additional job to try */
 
-				sLogger.debug("queuing param job {}", bestJob.jobDefinition.getShortName());
-				ExtendedCompletableFuture.runAsync(new Runnable() {
+				if (dependentInfo.jobs.size() > (dependentInfo.currentJob + 1)) {
 
-					@Override
-					public void run() {
-						ExtendedCompletableFuture<Object> result = new ExtendedCompletableFuture<>();
+					dependentInfo.currentJob++;
 
-						/*
-						 * If the job fails, then we fail. if the job succeeds, then re-run ourselves to see if all our
-						 * dependencies are available
-						 */
-						result.whenComplete((v, ex) -> {
-							sLogger.debug("Here");
-							if (ex != null) {
+					/* Execute the job */
+
+					JobRequest bestJob = dependentInfo.jobs.get(dependentInfo.currentJob);
+
+					sLogger.debug("queuing param job {}", bestJob.jobDefinition.getShortName());
+					submit(bestJob).whenComplete((v, ex) -> {
+						sLogger.debug("Here");
+						if (ex != null) {
+
+							if (ex instanceof CompletionException)
+								ex = ((CompletionException) ex).getCause();
+
+							if (ex == null)
+								ex = new RuntimeException(
+									"CompletionException returned a null cause. That should never happen. Unknown how to resolve.");
+
+							/*
+							 * If there was an exception, but it wasn't an error, then just log it as a debug message,
+							 * and continue to the next one. NOTE: If it was the 'last' job, then the re-queue of the
+							 * parent job will use the result as it's output
+							 */
+							if (ex instanceof AbstractReactionsNotErrorException) {
+
+								sLogger.debug("param job({}) failed, but continuing to the next choice: {}",
+									bestJob.jobDefinition.getShortName(), ex.getMessage());
+
+								dependentInfo.jobError = ex;
+							}
+							else {
 								sLogger.debug("param job(" + bestJob.jobDefinition.getShortName() + ") failed", ex);
 								pResult.completeExceptionally(ex);
 								return;
 							}
-							sLogger.debug("re-queuing job {}", pJob.jobDefinition.getShortName());
+						}
 
-							ExtendedCompletableFuture.runAsync(() -> executeIfDepends(pJob, pResult), mExecutorService)
-								.whenComplete((v2, ex2) -> {
-									if (ex2 != null) {
-										sLogger.debug("re-running job " + pJob.jobDefinition.getShortName() + " failed",
-											ex2);
-										pResult.completeExceptionally(ex2);
-										return;
-									}
-									sLogger.debug("executeIfDepends({}) completed - 3",
-										pJob.jobDefinition.getShortName());
-								});
-						});
-						sLogger.debug("Calling executeIfDepends({}) from queued runnable",
-							bestJob.jobDefinition.getShortName());
-						executeIfDepends(bestJob, result);
+						sLogger.debug("re-queuing job {}", pJob.jobDefinition.getShortName());
 
-					}
-				}, mExecutorService).whenComplete((v, ex) -> {
-					if (ex != null) {
-						sLogger.debug("job " + bestJob.jobDefinition.getShortName() + " failed", ex);
-						pResult.completeExceptionally(ex);
-						return;
-					}
-					sLogger.debug("executeIfDepends({}) completed - 2", bestJob.jobDefinition.getShortName());
-				});
+						ExtendedCompletableFuture.runAsync(() -> executeIfDepends(pJob, pResult), mExecutorService)
+							.whenComplete((v2, ex2) -> {
+								if (ex2 != null) {
+									sLogger.debug("re-running job " + pJob.jobDefinition.getShortName() + " failed");
+									sLogger.trace("", ex2);
+									pResult.completeExceptionally(ex2);
+									return;
+								}
+								sLogger.debug("executeIfDepends({}) completed - 3", pJob.jobDefinition.getShortName());
+							});
 
-				/* Exit now, so that the dependent can be built */
+					});
 
-				return;
+					/* Exit now, so that the dependent can be built */
+
+					return;
+				}
 			}
-			dependents.add(dependent);
+
+			if (dependentInfo.isResolved == false) {
+
+				StringBuilder sb = new StringBuilder();
+				sb.append("The job cannot be executed because there are no solution on how to construct the param ");
+				sb.append(param.getShortName());
+				sb.append('.');
+				if (dependentInfo.jobError != null)
+					sb.append(" This could be because of an error when executing the dependent jobs.");
+				sLogger.warn(sb.toString());
+				AbstractReactionsException are =
+					new ReactionsMissingDependentException(sb.toString(), dependentInfo.jobError);
+				are.setMessagePrefix(pJob.getIdentifier());
+				throw are;
+			}
+
+			dependents.add(dependentInfo.resolvedValue);
 		}
 
 		/* Now execute the job */
@@ -721,16 +777,16 @@ public class EngineImpl implements Engine {
 	 * @param pPossibleJobs
 	 * @return
 	 */
-	private @Nullable JobRequest sortJobs(Set<@NonNull JobRequest> pPossibleJobs) {
-		if (pPossibleJobs.isEmpty() == true)
-			return null;
+	private List<@NonNull JobRequest> sortJobs(Set<@NonNull JobRequest> pPossibleJobs) {
 
 		/*
 		 * TODO: This hack just returns the first job. A better implementation would look at the ones that have the
 		 * fewest dependencies
 		 */
 
-		return pPossibleJobs.iterator().next();
+		List<@NonNull JobRequest> jobList = new ArrayList<JobRequest>(pPossibleJobs);
+		jobList.sort(null);
+		return jobList;
 	}
 
 	private @Nullable Object execute(JobRequest pJob, ParamDefinition<?>[] pArray, Object[] pDependents) {
@@ -765,8 +821,19 @@ public class EngineImpl implements Engine {
 			method.setAccessible(true);
 			result = method.invoke(callback, invokeParams);
 		}
-		catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException ex) {
+		catch (IllegalAccessException | IllegalArgumentException ex) {
 			throw new RuntimeException(ex);
+		}
+		catch (InvocationTargetException ex) {
+			Throwable cause = ex.getCause();
+			if (cause instanceof AbstractReactionsException) {
+				AbstractReactionsException are = (AbstractReactionsException) cause;
+				are.setMessagePrefix(pJob.getIdentifier());
+				throw are;
+			}
+			if (cause instanceof RuntimeException)
+				throw (RuntimeException) cause;
+			throw new RuntimeException(cause);
 		}
 		return result;
 	}

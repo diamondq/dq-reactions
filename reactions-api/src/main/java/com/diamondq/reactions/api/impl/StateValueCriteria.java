@@ -22,4 +22,13 @@ public class StateValueCriteria extends StateCriteria {
 		sb.append(")");
 		return sb.toString();
 	}
+
+	@Override
+	public String getIdentifier() {
+		StringBuilder sb = new StringBuilder();
+		sb.append(state);
+		sb.append(isEqual == true ? "=" : "!=");
+		sb.append(value);
+		return sb.toString();
+	}
 }

@@ -2,7 +2,7 @@ package com.diamondq.reactions.engine.tests.simple_trigger;
 
 import com.diamondq.common.lambda.future.ExtendedCompletableFuture;
 import com.diamondq.reactions.api.Action;
-import com.diamondq.reactions.api.Engine;
+import com.diamondq.reactions.api.ReactionsEngine;
 
 import java.util.Collections;
 import java.util.concurrent.ExecutionException;
@@ -25,7 +25,7 @@ public class TestSimpleAddToCollection {
 	@Test
 	public void submit() throws InterruptedException, ExecutionException {
 		sLogger.warn("Here");
-		Engine engine = weld.select(Engine.class).get();
+		ReactionsEngine engine = weld.select(ReactionsEngine.class).get();
 		ExtendedCompletableFuture<@Nullable Void> result = engine.addToCollection(new Record("test"), Action.INSERT,
 			"testName", Collections.singletonMap("state1Key", "state1Value"));
 		result.get();

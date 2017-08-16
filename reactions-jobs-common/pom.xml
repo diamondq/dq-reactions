@@ -1,0 +1,68 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>com.diamondq.reactions</groupId>
+		<artifactId>reactions-root</artifactId>
+		<version>0.1.0-SNAPSHOT</version>
+		<relativePath>../reactions-root</relativePath>
+	</parent>
+	<artifactId>reactions-jobs-common</artifactId>
+	<packaging>jar</packaging>
+	<name>DiamondQ Reactions: Jobs: Common</name>
+	<dependencies>
+		<dependency>
+			<groupId>com.google.guava</groupId>
+			<artifactId>guava</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>javax.enterprise</groupId>
+			<artifactId>cdi-api</artifactId>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>net.jodah</groupId>
+			<artifactId>typetools</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>com.diamondq.common.java.config</groupId>
+			<artifactId>common-config-api</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>com.diamondq.reactions</groupId>
+			<artifactId>reactions-api</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>com.diamondq.common.java.model</groupId>
+			<artifactId>common-model-standard</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>com.diamondq.common.java.config</groupId>
+			<artifactId>common-config-core</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>com.diamondq.common.java.config</groupId>
+			<artifactId>common-config-format-snake-yaml</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>junit</groupId>
+			<artifactId>junit</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.jboss.weld</groupId>
+			<artifactId>weld-junit4</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- <dependency> <groupId>org.jglue.cdi-unit</groupId> <artifactId>cdi-unit</artifactId> 
+			<version>3.1.2</version> <scope>test</scope> <exclusions> <exclusion> <groupId>commons-logging</groupId> 
+			<artifactId>commons-logging</artifactId> </exclusion> </exclusions> </dependency> -->
+		<dependency>
+			<groupId>ch.qos.logback</groupId>
+			<artifactId>logback-classic</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+</project>

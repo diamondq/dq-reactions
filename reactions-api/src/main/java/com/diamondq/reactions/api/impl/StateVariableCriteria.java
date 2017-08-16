@@ -18,4 +18,15 @@ public class StateVariableCriteria extends StateCriteria {
 		sb.append(")");
 		return sb.toString();
 	}
+
+	@Override
+	public String getIdentifier() {
+		StringBuilder sb = new StringBuilder();
+		if (isEqual == false)
+			sb.append('!');
+		sb.append('{');
+		sb.append(state);
+		sb.append('}');
+		return sb.toString();
+	}
 }
