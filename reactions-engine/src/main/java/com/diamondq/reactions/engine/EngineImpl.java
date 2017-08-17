@@ -372,9 +372,9 @@ public class EngineImpl implements ReactionsEngine {
 
 			/* Try looking for a transient or persistent storage for this param */
 
-			if (dependentInfo.isResolved == false) {
-				if (param.persistent != null) {
-					Store store = (param.persistent == true ? mPersistentStore : mTransientStore);
+			if ((dependentInfo.isResolved == false) && (param.isStored == true)) {
+				if (param.isPersistent != null) {
+					Store store = (param.isPersistent == true ? mPersistentStore : mTransientStore);
 					Set<Object> storeDependents = store.resolve(param);
 					// TODO: For now, just take the first
 					if (storeDependents.isEmpty() == false) {
@@ -454,6 +454,11 @@ public class EngineImpl implements ReactionsEngine {
 								pResult.completeExceptionally(ex);
 								return;
 							}
+						}
+
+						if (param.isStored == false) {
+							dependentInfo.resolvedValue = v;
+							dependentInfo.isResolved = true;
 						}
 
 						sLogger.debug("re-queuing job {}", pJob.jobDefinition.getShortName());
@@ -548,7 +553,8 @@ public class EngineImpl implements ReactionsEngine {
 				throw new UnsupportedOperationException();
 			}
 
-			if (rd.persistent != null) {
+			if (rd.isStored == true) {
+				boolean persist = (rd.isPersistent != null ? rd.isPersistent : false);
 				Map<String, String> states = Maps.newHashMap();
 				for (StateCriteria sc : rd.requiredStates) {
 					if (sc instanceof StateValueCriteria) {
@@ -581,8 +587,7 @@ public class EngineImpl implements ReactionsEngine {
 						throw new IllegalArgumentException("Unable to find the name");
 				}
 
-				Store store = (rd.persistent == null ? mTransientStore
-					: (rd.persistent == true ? mPersistentStore : mTransientStore));
+				Store store = (persist == true ? mPersistentStore : mTransientStore);
 				storeAndTrigger(store, rdObject, Action.CHANGE, rd.clazz.getName(), name, states);
 			}
 		}

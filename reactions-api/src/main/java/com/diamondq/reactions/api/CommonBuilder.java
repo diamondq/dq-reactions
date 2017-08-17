@@ -47,5 +47,12 @@ public interface CommonBuilder<T, AS extends CommonBuilder<T, AS>> {
 	 */
 	public AS isPersistent();
 
+	/**
+	 * A shortcut that sets the 'persistent' state
+	 * 
+	 * @return the builder
+	 */
+	public AS isStored();
+
 	public AS variable(String pState);
 }

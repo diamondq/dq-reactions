@@ -99,6 +99,16 @@ public abstract class CommonBuilderImpl<T, AS extends CommonBuilder<T, AS>> impl
 		return (AS) this;
 	}
 
+	/**
+	 * @see com.diamondq.reactions.api.CommonBuilder#isStored()
+	 */
+	@SuppressWarnings("unchecked")
+	@Override
+	public AS isStored() {
+		mRequiredStates.add(new StateCriteria("persistent", true));
+		return (AS) this;
+	}
+
 	public Class<T> getParamClass() {
 		return mClass;
 	}

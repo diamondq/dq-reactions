@@ -238,7 +238,7 @@ public class Store {
 					throw new UnsupportedOperationException();
 				}
 				else {
-					/* It won't be a VariableCriteria, since those are stored separately */
+					/* It won't be a VariableCriteria, since those are isStored separately */
 
 					String testValue = states.get(sc.state);
 					if (testValue == null) {

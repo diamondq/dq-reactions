@@ -16,7 +16,7 @@ public class ArpLauncherUnix extends AbstractNoParamsJobInfo {
 		pContext.registerJob(pContext.newJobBuilder()
 			.method(this::getLauncher).info(this)
 			.result(ProcessLauncher.class).isTransient().name("arp").state("arpAll").build()
-			.param(ProcessLauncher.class).name("arp").missingState("arpAll").build()
+			.param(ProcessLauncher.class).isStored().name("arp").missingState("arpAll").build()
 		.build());
 		// @formatter:on	
 	}

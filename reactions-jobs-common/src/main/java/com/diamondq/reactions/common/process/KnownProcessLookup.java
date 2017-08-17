@@ -58,7 +58,7 @@ public class KnownProcessLookup implements JobInfo<@Nullable Void, KnownProcessL
 		// @formatter:off
 		pContext.registerJob(pContext.newJobBuilder()
 			.method(this::lookupProcess).info(this)
-			.result(ProcessLauncher.class).isTransient().nameByVariable("name").build()
+			.result(ProcessLauncher.class).isStored().nameByVariable("name").build()
 			.param(String.class).valueByVariable("name").build()
 		.build());
 		// @formatter:on

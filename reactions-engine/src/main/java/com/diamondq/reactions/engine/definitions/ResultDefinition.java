@@ -14,7 +14,9 @@ public class ResultDefinition<T> {
 
 	public final Class<T>				clazz;
 
-	public final @Nullable Boolean		persistent;
+	public final boolean				isStored;
+
+	public final @Nullable Boolean		isPersistent;
 
 	public final Set<StateCriteria>		requiredStates;
 
@@ -39,9 +41,11 @@ public class ResultDefinition<T> {
 		name = pName;
 		nameByVariable = pNameByVariable;
 		resultIsParam = pResultIsParam;
+		boolean stored = false;
 		Boolean persist = null;
 		for (StateCriteria criteria : pRequiredStates)
 			if ("persistent".equals(criteria.state)) {
+				stored = true;
 				if (criteria instanceof StateValueCriteria) {
 					StateValueCriteria svc = (StateValueCriteria) criteria;
 					if (svc.isEqual == true)
@@ -56,7 +60,8 @@ public class ResultDefinition<T> {
 				}
 			}
 
-		persistent = persist;
+		isStored = stored;
+		isPersistent = persist;
 	}
 
 }

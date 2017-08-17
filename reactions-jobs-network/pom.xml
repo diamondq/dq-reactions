@@ -41,6 +41,10 @@
 			<artifactId>common-model-standard</artifactId>
 		</dependency>
 		<dependency>
+			<groupId>com.diamondq.common.java.utils</groupId>
+			<artifactId>common-utils-parsing</artifactId>
+		</dependency>
+		<dependency>
 			<groupId>com.diamondq.common.java.config</groupId>
 			<artifactId>common-config-core</artifactId>
 			<scope>test</scope>

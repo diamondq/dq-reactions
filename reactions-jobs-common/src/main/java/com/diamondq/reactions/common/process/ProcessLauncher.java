@@ -12,11 +12,15 @@ import java.util.Map;
 
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The ProcessLauncher represents the commands necessary to execute a process
  */
 public class ProcessLauncher {
+
+	private static final Logger sLogger = LoggerFactory.getLogger(ProcessLauncher.class);
 
 	/**
 	 * Each argument of the command is a subclass of ProcessArgument
@@ -202,6 +206,7 @@ public class ProcessLauncher {
 	public Result launch(@Nullable Map<String, String> pVariableMap, @Nullable List<String> pExtraArguments) {
 
 		List<String> arguments = resolve(pVariableMap, pExtraArguments);
+		sLogger.debug("Launching {}", arguments);
 		ProcessBuilder pb = new ProcessBuilder(arguments);
 		pb = pb.redirectErrorStream(true);
 		Process process;
