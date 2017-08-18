@@ -98,7 +98,7 @@ public class NMapPingArpScan extends AbstractNoParamsJobInfo {
 
 				String msg = new String(result.data).trim();
 
-				sLogger.debug("Result of ARP: {}", msg);
+				sLogger.trace("Result of ARP: {}", msg);
 
 				Document nmapDoc =
 					Parser.parse(new InputSource(new StringReader(new String(result.data, Charsets.UTF_8))));
