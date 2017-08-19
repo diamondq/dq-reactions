@@ -2,7 +2,7 @@ pipeline {
   agent {
     docker {
       image 'maven:3-jdk-8'
-      args '-v /data/jenkins/m2:/.m2 -v /data/jenkins/gpg:/.gnupg -v /data/jenkins/docker:/.docker'
+      args '-v /data/jenkins/m2-reactions:/.m2 -v /data/jenkins/gpg:/.gnupg -v /data/jenkins/docker:/.docker'
     }
     
   }
