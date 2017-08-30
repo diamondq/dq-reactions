@@ -1,5 +1,6 @@
 package com.diamondq.reactions.network.arp;
 
+import com.diamondq.common.config.Config;
 import com.diamondq.common.utils.parsing.xml.DOMTraversal;
 import com.diamondq.common.utils.parsing.xml.Parser;
 import com.diamondq.reactions.api.ConfigureReaction;
@@ -8,6 +9,7 @@ import com.diamondq.reactions.api.info.AbstractNoParamsJobInfo;
 import com.diamondq.reactions.common.process.ProcessLauncher;
 import com.diamondq.reactions.common.process.ProcessLauncher.Result;
 import com.google.common.base.Charsets;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.io.StringReader;
@@ -24,8 +26,10 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import javax.enterprise.context.ApplicationScoped;
+import javax.inject.Inject;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,7 +40,19 @@ import org.xml.sax.InputSource;
 
 @ApplicationScoped
 public class NMapPingArpScan extends AbstractNoParamsJobInfo {
-	private static final Logger sLogger = LoggerFactory.getLogger(NMapPingArpScan.class);
+	private static final Logger	sLogger	= LoggerFactory.getLogger(NMapPingArpScan.class);
+
+	private final Set<String>	mExcludeNetworks;
+
+	@Inject
+	public NMapPingArpScan(Config pConfig) {
+		@SuppressWarnings("unchecked")
+		Collection<String> networks =
+			pConfig.bind("reactions.network.nmap-ping-arp-scan.exclude-networks-with-ip", Collection.class);
+		if (networks == null)
+			networks = Collections.emptyList();
+		mExcludeNetworks = ImmutableSet.copyOf(networks);
+	}
 
 	@ConfigureReaction
 	public void setup(JobContext pContext) {
@@ -50,7 +66,7 @@ public class NMapPingArpScan extends AbstractNoParamsJobInfo {
 	}
 
 	public ArpScanResult execute(ProcessLauncher pNMapLauncher) {
-		sLogger.info("Execute");
+		sLogger.debug("Execute");
 		Enumeration<NetworkInterface> networkInterfaces;
 		try {
 			networkInterfaces = NetworkInterface.getNetworkInterfaces();
@@ -60,7 +76,7 @@ public class NMapPingArpScan extends AbstractNoParamsJobInfo {
 		}
 
 		Date startScanDate = null;
-		
+
 		Map<InetAddress, Collection<ArpRecord>> scanResult = new HashMap<>();
 
 		for (; networkInterfaces.hasMoreElements();) {
@@ -69,12 +85,21 @@ public class NMapPingArpScan extends AbstractNoParamsJobInfo {
 				InetAddress networkAddress = ia.getAddress();
 				if (networkAddress == null)
 					continue;
+
+				/* Skip ipv6 networks (not currently supported) */
+
 				if (networkAddress instanceof Inet6Address)
 					continue;
 				StringBuilder sb = new StringBuilder();
 				String naStr = networkAddress.toString();
 				while (naStr.startsWith("/"))
 					naStr = naStr.substring(1);
+
+				/* Skip any network that includes an IP that we've been asked to skip */
+
+				if (mExcludeNetworks.contains(naStr) == true)
+					continue;
+
 				sb.append(naStr);
 				sb.append('/');
 				if (ia.getNetworkPrefixLength() < 24)
@@ -118,7 +143,7 @@ public class NMapPingArpScan extends AbstractNoParamsJobInfo {
 
 				if (startScanDate == null)
 					startScanDate = date;
-				
+
 				/* Now find all the host objects */
 
 				List<Element> hosts = DOMTraversal.traverse(nmapDoc, Element.class, null, "nmaprun", null, "host");
