@@ -427,7 +427,7 @@ public class EngineImpl implements ReactionsEngine {
 
 					sLogger.debug("queuing param job {}", bestJob.jobDefinition.getShortName());
 					submit(bestJob).whenComplete((v, ex) -> {
-						sLogger.debug("Here");
+						sLogger.trace("Here");
 						if (ex != null) {
 
 							if (ex instanceof CompletionException)
@@ -594,7 +594,7 @@ public class EngineImpl implements ReactionsEngine {
 
 		/* We're done */
 
-		sLogger.debug("Job is complete");
+		sLogger.trace("Job is complete");
 
 		pResult.complete(resultObj);
 	}
