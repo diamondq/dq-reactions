@@ -15,8 +15,9 @@ import com.diamondq.common.model.interfaces.WhereOperator;
 import com.diamondq.reactions.api.Action;
 import com.diamondq.reactions.api.impl.StateCriteria;
 import com.diamondq.reactions.api.impl.StateValueCriteria;
+import com.diamondq.reactions.api.impl.StateValueVariableCriteria;
 import com.diamondq.reactions.api.impl.StateVariableCriteria;
-import com.diamondq.reactions.engine.definitions.ParamDefinition;
+import com.diamondq.reactions.engine.definitions.DependentDefinition;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -78,8 +79,8 @@ public class Store {
 			.addPropertyDefinition(pToolkit.createNewPropertyDefinition(mScope, "valueRef", PropertyType.StructureRef));
 		sd = sd
 			.addPropertyDefinition(pToolkit.createNewPropertyDefinition(mScope, "states", PropertyType.StructureRefList)
-				.addReferenceType(dataStatesRef).addKeyword(CommonKeywordKeys.CONTAINER,
-					CommonKeywordValues.CONTAINER_CHILDREN));
+				.addReferenceType(dataStatesRef)
+				.addKeyword(CommonKeywordKeys.CONTAINER, CommonKeywordValues.CONTAINER_CHILDREN));
 		pToolkit.writeStructureDefinition(mScope, sd);
 		StructureDefinition dataDef = pToolkit.lookupStructureDefinitionByName(mScope, "data");
 		if (dataDef == null)
@@ -172,10 +173,10 @@ public class Store {
 
 	}
 
-	public Set<Object> resolve(ParamDefinition<?> pParam) {
-		QueryBuilder queryBuilder =
-			mToolkit.createNewQueryBuilder(mScope).andWhereConstant("type", WhereOperator.eq, pParam.clazz.getName());
-		String name = pParam.name;
+	public Set<Object> resolve(DependentDefinition<?> pDependent) {
+		QueryBuilder queryBuilder = mToolkit.createNewQueryBuilder(mScope).andWhereConstant("type", WhereOperator.eq,
+			pDependent.clazz.getName());
+		String name = pDependent.name;
 		if (name != null)
 			queryBuilder = queryBuilder.andWhereConstant("name", WhereOperator.eq, name);
 		List<Structure> list = mToolkit.lookupStructuresByQuery(mScope, mDataDef, queryBuilder, Collections.emptyMap());
@@ -210,7 +211,7 @@ public class Store {
 			/* Now filter */
 
 			boolean match = true;
-			for (StateCriteria sc : pParam.requiredStates) {
+			for (StateCriteria sc : pDependent.requiredStates) {
 				if (sc instanceof StateValueCriteria) {
 					StateValueCriteria svc = (StateValueCriteria) sc;
 					String testValue = states.get(svc.state);
@@ -235,6 +236,9 @@ public class Store {
 					continue;
 				}
 				else if (sc instanceof StateVariableCriteria) {
+					throw new UnsupportedOperationException();
+				}
+				else if (sc instanceof StateValueVariableCriteria) {
 					throw new UnsupportedOperationException();
 				}
 				else {
@@ -263,7 +267,7 @@ public class Store {
 					if (bits != null) {
 						Object data = bits.lookupMandatoryPropertyByName("bits").getValue(bits);
 						if (data != null) {
-							if (pParam.clazz.isInstance(data))
+							if (pDependent.clazz.isInstance(data))
 								results.add(data);
 							else {
 								// TODO Convert it back from byte[]

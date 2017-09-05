@@ -107,9 +107,9 @@ public class ProcessLauncher {
 	}
 
 	/**
-	 * Helper that returns a ProcessArgument for a variable
+	 * Helper that returns a ProcessArgument for a variableName
 	 * 
-	 * @param pVariable the variable name
+	 * @param pVariable the variableName name
 	 * @return the ProcessArgument
 	 */
 	public static ProcessArgument variable(String pVariable) {
@@ -128,7 +128,7 @@ public class ProcessLauncher {
 	/**
 	 * Resolves the arguments into a String list.
 	 * 
-	 * @param pVariableMap the map of data to be used for variable substitution. If there are any variables in the
+	 * @param pVariableMap the map of data to be used for variableName substitution. If there are any variables in the
 	 *            arguments that are not resolved by this Map, then an exception will be thrown.
 	 * @param pExtraArguments an extra arguments to add to the end
 	 * @return the String list
@@ -142,7 +142,7 @@ public class ProcessLauncher {
 				String variable = pVariableMap == null ? null : pVariableMap.get(((VariableArgument) arg).variable);
 				if (variable == null)
 					throw new IllegalStateException(
-						"The process " + getShortName() + " can't execute because the variable "
+						"The process " + getShortName() + " can't execute because the variableName "
 							+ ((VariableArgument) arg).variable + " can't be found");
 				arguments.add(variable);
 			}
@@ -198,7 +198,7 @@ public class ProcessLauncher {
 	/**
 	 * Launches the ProcessLauncher and gets a Result
 	 * 
-	 * @param pVariableMap the map of data to be used for variable substitution. If there are any variables in the
+	 * @param pVariableMap the map of data to be used for variableName substitution. If there are any variables in the
 	 *            arguments that are not resolved by this Map, then an exception will be thrown.
 	 * @param pExtraArguments an extra arguments to add to the end
 	 * @return the Result

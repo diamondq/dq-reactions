@@ -20,7 +20,7 @@ public class ParamBuilderImpl<PT> extends CommonBuilderImpl<PT, ParamBuilder<PT>
 
 	/**
 	 * Defines a missing state for this param
-	 * 
+	 *
 	 * @param pState the state
 	 * @return the param builder
 	 */
@@ -32,7 +32,7 @@ public class ParamBuilderImpl<PT> extends CommonBuilderImpl<PT, ParamBuilder<PT>
 
 	/**
 	 * Defines a missing state for this param
-	 * 
+	 *
 	 * @param pState the state
 	 * @param pValue the value of the state
 	 * @return the param builder
@@ -43,9 +43,21 @@ public class ParamBuilderImpl<PT> extends CommonBuilderImpl<PT, ParamBuilder<PT>
 		return this;
 	}
 
+	/**
+	 * @see com.diamondq.reactions.api.ParamBuilder#stateByVariable(java.lang.String)
+	 */
 	@Override
 	public ParamBuilderImpl<PT> stateByVariable(String pVariable) {
 		mRequiredStates.add(new StateVariableCriteria(pVariable, true));
+		return this;
+	}
+
+	/**
+	 * @see com.diamondq.reactions.api.ParamBuilder#stateValueByVariable(java.lang.String, java.lang.String)
+	 */
+	@Override
+	public ParamBuilder<PT> stateValueByVariable(String pState, String pVariable) {
+		mRequiredStates.add(new StateValueVariableCriteria(pState, pVariable, true));
 		return this;
 	}
 
@@ -78,7 +90,7 @@ public class ParamBuilderImpl<PT> extends CommonBuilderImpl<PT, ParamBuilder<PT>
 
 	/**
 	 * Finish this param and return back to the job
-	 * 
+	 *
 	 * @return the job builder
 	 */
 	@Override

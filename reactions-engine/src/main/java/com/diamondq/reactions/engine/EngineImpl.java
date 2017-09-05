@@ -15,18 +15,19 @@ import com.diamondq.reactions.api.errors.AbstractReactionsNotErrorException;
 import com.diamondq.reactions.api.errors.ReactionsMissingDependentException;
 import com.diamondq.reactions.api.impl.StateCriteria;
 import com.diamondq.reactions.api.impl.StateValueCriteria;
+import com.diamondq.reactions.api.impl.StateValueVariableCriteria;
 import com.diamondq.reactions.api.impl.StateVariableCriteria;
-import com.diamondq.reactions.api.impl.VariableCriteria;
+import com.diamondq.reactions.engine.definitions.DependentDefinition;
 import com.diamondq.reactions.engine.definitions.JobDefinitionImpl;
 import com.diamondq.reactions.engine.definitions.ParamDefinition;
 import com.diamondq.reactions.engine.definitions.ResultDefinition;
 import com.diamondq.reactions.engine.definitions.TriggerDefinition;
+import com.diamondq.reactions.engine.definitions.VariableDefinition;
 import com.diamondq.reactions.engine.evals.ActionNode;
 import com.diamondq.reactions.engine.evals.NameNode;
 import com.diamondq.reactions.engine.evals.TypeNode;
-import com.diamondq.reactions.engine.evals.VariableNameNode;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -64,10 +65,6 @@ public class EngineImpl implements ReactionsEngine {
 
 	private static final Logger									sLogger				=
 		LoggerFactory.getLogger(EngineImpl.class);
-
-	private static final String									sUNDEFINED			= "__UNDEFINED__";
-
-	public static final String									sVARIABLE			= "__VARIABLE__";
 
 	private static final String									sPERSISTENT_STATE	= "persistent";
 
@@ -184,6 +181,20 @@ public class EngineImpl implements ReactionsEngine {
 		if (definition.jobInfo != null)
 			mJobByInfoClass.putIfAbsent(definition.jobInfo.getClass(), definition);
 
+		/* Calculate the required states to add to each branch */
+
+		boolean valueByResultName = false;
+		ImmutableSet.Builder<StateCriteria> builder = ImmutableSet.builder();
+		for (VariableDefinition<?> variable : definition.variables) {
+			if (variable.valueByResultName == true)
+				valueByResultName = true;
+			String valueByResultStateValue = variable.valueByResultStateValue;
+			String name = variable.variableName;
+			if ((valueByResultStateValue != null) && (name != null))
+				builder.add(new StateValueVariableCriteria(valueByResultStateValue, name, true));
+		}
+		Set<StateCriteria> variableRequiredStates = builder.build();
+
 		/* Register against the trigger tree */
 
 		for (TriggerDefinition<?> td : definition.triggers) {
@@ -197,10 +208,14 @@ public class EngineImpl implements ReactionsEngine {
 			String type = td.clazz.getName();
 			TypeNode typeNode = actionNode.getOrAddType(type);
 			String name = td.name;
+			NameNode nameNode;
 			if (name == null)
-				name = sUNDEFINED;
-			NameNode nameNode = typeNode.getOrAddName(name);
-			nameNode.addCriteria(Iterables.concat(td.requiredStates, td.variables), definition);
+				nameNode = typeNode.getOrAddUndefined();
+			else
+				nameNode = typeNode.getOrAddName(name);
+			Set<StateCriteria> requiredStates =
+				ImmutableSet.<StateCriteria> builder().addAll(variableRequiredStates).addAll(td.requiredStates).build();
+			nameNode.addCriteria(requiredStates, definition);
 		}
 
 		/* Register against the result tree */
@@ -213,18 +228,19 @@ public class EngineImpl implements ReactionsEngine {
 				if ((typeNode = mResultTree.putIfAbsent(type, newTypeNode)) == null)
 					typeNode = newTypeNode;
 			}
+			Set<StateCriteria> requiredStates =
+				ImmutableSet.<StateCriteria> builder().addAll(variableRequiredStates).addAll(rd.requiredStates).build();
 			String name = rd.name;
 			if (name != null) {
 				NameNode nameNode = typeNode.getOrAddName(name);
-				nameNode.addCriteria(Iterables.concat(rd.requiredStates, rd.variables), definition);
+				nameNode.addCriteria(requiredStates, definition);
 			}
-			String nameByVariable = rd.nameByVariable;
-			if (nameByVariable != null) {
-				NameNode nameNode = typeNode.getOrAddVariableName(nameByVariable);
-				nameNode.addCriteria(Iterables.concat(rd.requiredStates, rd.variables), definition);
+			if (valueByResultName == true) {
+				NameNode nameNode = typeNode.getOrAddWithVariables();
+				nameNode.addCriteria(requiredStates, definition);
 			}
-			NameNode nameNode = typeNode.getOrAddName(sUNDEFINED);
-			nameNode.addCriteria(Iterables.concat(rd.requiredStates, rd.variables), definition);
+			NameNode nameNode = typeNode.getOrAddUndefined();
+			nameNode.addCriteria(requiredStates, definition);
 		}
 	}
 
@@ -252,7 +268,7 @@ public class EngineImpl implements ReactionsEngine {
 
 		sLogger.debug("Receiving job submission for {}", definition.getShortName());
 
-		JobRequest request = new JobRequest(definition, null, Collections.emptyMap(), pBuilder);
+		JobRequest request = new JobRequest(definition, null, pBuilder, null, Collections.emptySet());
 		return submit(request);
 	}
 
@@ -301,7 +317,7 @@ public class EngineImpl implements ReactionsEngine {
 	 * Submit a given job definition for execution. This attempts to resolve all dependencies, and once they are
 	 * resolved, executes them. Once the job is queued for execution, it returns and all the work runs on a separate
 	 * thread.
-	 * 
+	 *
 	 * @param pJob the job to execute
 	 * @return the future
 	 */
@@ -329,7 +345,7 @@ public class EngineImpl implements ReactionsEngine {
 	/**
 	 * Checks all the dependencies on this job, and if they're all available, executes the job. If not, it attempts to
 	 * find jobs that can fulfill the dependences, and schedules those.
-	 * 
+	 *
 	 * @param pJob the job
 	 * @param pResult the result
 	 */
@@ -339,43 +355,87 @@ public class EngineImpl implements ReactionsEngine {
 			sLogger.debug("executeIfDepends: {}", pJob.getIdentifier());
 
 		List<@Nullable Object> dependents = Lists.newArrayList();
-		for (ParamDefinition<?> param : pJob.jobDefinition.params) {
+		for (DependentDefinition<?> dependent : Iterables.concat(pJob.jobDefinition.variables,
+			pJob.jobDefinition.params)) {
 
-			DependentInfo queriedDependentInfo = pJob.executingByParam.get(param);
+			DependentInfo queriedDependentInfo = pJob.executingByParam.get(dependent);
 			if (queriedDependentInfo == null) {
 				DependentInfo newDependentInfo = new DependentInfo();
-				if ((queriedDependentInfo = pJob.executingByParam.putIfAbsent(param, newDependentInfo)) == null)
+				if ((queriedDependentInfo = pJob.executingByParam.putIfAbsent(dependent, newDependentInfo)) == null)
 					queriedDependentInfo = newDependentInfo;
+				if (dependent instanceof VariableDefinition<?>) {
+					VariableDefinition<?> variable = (VariableDefinition<?>) dependent;
+					String name = variable.variableName;
+					if (name != null)
+						pJob.variableMap.put(name, variable);
+				}
 			}
 
 			final DependentInfo dependentInfo = queriedDependentInfo;
 
-			/* Use a job variable if present */
+			/* If it's a VariableDefinition, see if we can resolve it directly */
 
-			if ((dependentInfo.isResolved == false) && (param.valueByVariable != null)) {
-				String value = pJob.variables.get(param.valueByVariable);
-				if (param.clazz.equals(String.class) == false)
-					throw new IllegalStateException(
-						"Only a param of String.class is allowed to use the valueByVariable");
-				dependentInfo.resolvedValue = value;
-				dependentInfo.isResolved = true;
+			if (dependent instanceof VariableDefinition) {
+				VariableDefinition<?> variable = (VariableDefinition<?>) dependent;
+
+				if ((dependentInfo.isResolved == false) && (variable.valueByResultName == true)) {
+					String resultName = pJob.resultName;
+					if (resultName != null) {
+						dependentInfo.resolvedValue = resultName;
+						dependentInfo.isResolved = true;
+					}
+				}
+
+				if ((dependentInfo.isResolved == false) && (variable.valueByResultStateValue != null)) {
+					for (StateCriteria sc : pJob.resultStates) {
+						if ((sc.state.equals(variable.valueByResultStateValue)) && (sc.isEqual == true)) {
+							if (sc instanceof StateValueCriteria) {
+								dependentInfo.resolvedValue = ((StateValueCriteria) sc).value;
+								dependentInfo.isResolved = true;
+							}
+						}
+					}
+				}
 			}
 
-			/* If there is a valueByInput, then use that */
+			/* Use a job variableName if present */
 
-			Function<JobParamsBuilder, ?> valueByInput = param.valueByInput;
-			JobParamsBuilder paramsBuilder = pJob.paramsBuilder;
-			if ((dependentInfo.isResolved == false) && (valueByInput != null) && (paramsBuilder != null)) {
-				dependentInfo.resolvedValue = valueByInput.apply(paramsBuilder);
-				dependentInfo.isResolved = true;
+			if (dependent instanceof ParamDefinition) {
+				ParamDefinition<?> param = (ParamDefinition<?>) dependent;
+
+				if ((dependentInfo.isResolved == false) && (param.valueByVariable != null)) {
+					VariableDefinition<?> variableDefinition = pJob.variableMap.get(param.valueByVariable);
+					if (variableDefinition != null) {
+						DependentInfo variableDependentInfo = pJob.executingByParam.get(variableDefinition);
+						if (variableDependentInfo != null) {
+							if (variableDependentInfo.isResolved == false)
+								throw new IllegalStateException("The variable " + variableDefinition.getIdentifier()
+									+ " is not resolved by the time it was used in parameter " + param.getIdentifier());
+							if (String.class.isInstance(variableDependentInfo.resolvedValue) == false)
+								throw new IllegalStateException(
+									"Only a param of String.class is allowed to use the valueByVariable");
+							dependentInfo.resolvedValue = variableDependentInfo.resolvedValue;
+							dependentInfo.isResolved = true;
+						}
+					}
+				}
+
+				/* If there is a valueByInput, then use that */
+
+				Function<JobParamsBuilder, ?> valueByInput = param.valueByInput;
+				JobParamsBuilder paramsBuilder = pJob.paramsBuilder;
+				if ((dependentInfo.isResolved == false) && (valueByInput != null) && (paramsBuilder != null)) {
+					dependentInfo.resolvedValue = valueByInput.apply(paramsBuilder);
+					dependentInfo.isResolved = true;
+				}
 			}
 
-			/* Try looking for a transient or persistent storage for this param */
+			/* Try looking for a transient or persistent storage for this dependent */
 
-			if ((dependentInfo.isResolved == false) && (param.isStored == true)) {
-				if (param.isPersistent != null) {
-					Store store = (param.isPersistent == true ? mPersistentStore : mTransientStore);
-					Set<Object> storeDependents = store.resolve(param);
+			if ((dependentInfo.isResolved == false) && (dependent.isStored == true)) {
+				if (dependent.isPersistent != null) {
+					Store store = (dependent.isPersistent == true ? mPersistentStore : mTransientStore);
+					Set<Object> storeDependents = store.resolve(dependent);
 					// TODO: For now, just take the first
 					if (storeDependents.isEmpty() == false) {
 						dependentInfo.resolvedValue = storeDependents.iterator().next();
@@ -383,14 +443,14 @@ public class EngineImpl implements ReactionsEngine {
 					}
 				}
 				else {
-					Set<Object> storeDependents = mTransientStore.resolve(param);
+					Set<Object> storeDependents = mTransientStore.resolve(dependent);
 					// TODO: For now, just take the first
 					if (storeDependents.isEmpty() == false) {
 						dependentInfo.resolvedValue = storeDependents.iterator().next();
 						dependentInfo.isResolved = true;
 					}
 					if (dependentInfo.isResolved == false) {
-						storeDependents = mPersistentStore.resolve(param);
+						storeDependents = mPersistentStore.resolve(dependent);
 						// TODO: For now, just take the first
 						if (storeDependents.isEmpty() == false) {
 							dependentInfo.resolvedValue = storeDependents.iterator().next();
@@ -410,7 +470,7 @@ public class EngineImpl implements ReactionsEngine {
 
 					/* Find the list of jobs that can produce it */
 
-					Set<JobRequest> possibleJobs = resolveParams(param);
+					Set<JobRequest> possibleJobs = resolveParams(pJob, dependent);
 					List<@NonNull JobRequest> bestJobs = sortJobs(possibleJobs);
 					dependentInfo.jobs = ImmutableList.copyOf(bestJobs);
 				}
@@ -456,7 +516,7 @@ public class EngineImpl implements ReactionsEngine {
 							}
 						}
 
-						if (param.isStored == false) {
+						if (dependent.isStored == false) {
 							dependentInfo.resolvedValue = v;
 							dependentInfo.isResolved = true;
 						}
@@ -485,8 +545,14 @@ public class EngineImpl implements ReactionsEngine {
 			if (dependentInfo.isResolved == false) {
 
 				StringBuilder sb = new StringBuilder();
-				sb.append("The job cannot be executed because there are no solution on how to construct the param ");
-				sb.append(param.getShortName());
+				sb.append("The job cannot be executed because there are no solution on how to construct the ");
+				if (dependent instanceof VariableDefinition)
+					sb.append("variable ");
+				else if (dependent instanceof ParamDefinition)
+					sb.append("param ");
+				else
+					sb.append("UNKNOWN ");
+				sb.append(dependent.getShortName());
 				sb.append('.');
 				if (dependentInfo.jobError != null)
 					sb.append(" This could be because of an error when executing the dependent jobs.");
@@ -497,7 +563,8 @@ public class EngineImpl implements ReactionsEngine {
 				throw are;
 			}
 
-			dependents.add(dependentInfo.resolvedValue);
+			if (dependent instanceof ParamDefinition)
+				dependents.add(dependentInfo.resolvedValue);
 		}
 
 		/* Now execute the job */
@@ -566,7 +633,7 @@ public class EngineImpl implements ReactionsEngine {
 					else if (sc instanceof StateVariableCriteria) {
 						throw new UnsupportedOperationException();
 					}
-					else if (sc instanceof VariableCriteria) {
+					else if (sc instanceof StateValueVariableCriteria) {
 						throw new UnsupportedOperationException();
 					}
 					else {
@@ -576,16 +643,11 @@ public class EngineImpl implements ReactionsEngine {
 					}
 				}
 
-				String name = rd.name;
-				if (name == null) {
-					String nameByVariable = rd.nameByVariable;
-					if (nameByVariable == null)
-						throw new UnsupportedOperationException();
-
-					name = pJob.variables.get(nameByVariable);
-					if (name == null)
-						throw new IllegalArgumentException("Unable to find the name");
-				}
+				String name = pJob.resultName;
+				if (name == null)
+					name = rd.name;
+				if (name == null)
+					throw new IllegalArgumentException("Unable to find the name");
 
 				Store store = (persist == true ? mPersistentStore : mTransientStore);
 				storeAndTrigger(store, rdObject, Action.CHANGE, rd.clazz.getName(), name, states);
@@ -599,186 +661,235 @@ public class EngineImpl implements ReactionsEngine {
 		pResult.complete(resultObj);
 	}
 
-	private static class VNN {
-		public final @Nullable String	variableName;
-
-		public final @Nullable String	variableValue;
-
+	public static class VirtualNameNode {
 		public final NameNode			nameNode;
 
-		public VNN(@Nullable String pVariableName, @Nullable String pVariableValue, NameNode pNameNode) {
-			super();
-			variableName = pVariableName;
-			variableValue = pVariableValue;
-			nameNode = pNameNode;
-		}
+		public final @Nullable String	resultName;
 
+		public VirtualNameNode(NameNode pNameNode, @Nullable String pResultName) {
+			super();
+			nameNode = pNameNode;
+			resultName = pResultName;
+		}
 	}
 
 	/**
 	 * Attempt to resolve the param definition to find a job that has it as a result
-	 * 
-	 * @param pParam the param
+	 *
+	 * @param pJob the job
+	 * @param pDependent the param
 	 * @return the set of jobs that produce that result
 	 */
-	private Set<JobRequest> resolveParams(ParamDefinition<?> pParam) {
+	private Set<JobRequest> resolveParams(JobRequest pJob, DependentDefinition<?> pDependent) {
 		Set<TypeNode> typeNodes = Sets.newIdentityHashSet();
 
 		/* Types */
 
 		TypeNode possibleTypeNode;
-		possibleTypeNode = mResultTree.get(pParam.clazz.getName());
+		possibleTypeNode = mResultTree.get(pDependent.clazz.getName());
 		if (possibleTypeNode != null)
 			typeNodes.add(possibleTypeNode);
 
 		/* Names */
 
-		Set<VNN> nameNodes = Sets.newIdentityHashSet();
+		Set<VirtualNameNode> nameNodes = Sets.newIdentityHashSet();
 		for (TypeNode typeNode : typeNodes) {
 			NameNode possibleNameNode;
-			String name = pParam.name;
+			String name = pDependent.name;
 			if (name != null) {
+
+				/* Check to see if there is one matching the name */
+
 				possibleNameNode = typeNode.getName(name);
 				if (possibleNameNode != null)
-					nameNodes.add(new VNN(null, null, possibleNameNode));
+					nameNodes.add(new VirtualNameNode(possibleNameNode, name));
 
-				/*
-				 * If we have a name, and there is a result tree element that needs a variabled name, then include that
-				 */
+				/* Also, check to see if there is one that wildcards the name into a variable */
 
-				possibleNameNode = typeNode.getName(sVARIABLE);
-				if (possibleNameNode != null) {
-					VariableNameNode vnn = (VariableNameNode) possibleNameNode;
-					for (Map.Entry<String, NameNode> pair : vnn.getByVariableNames()) {
-						nameNodes.add(new VNN(pair.getKey(), name, pair.getValue()));
-					}
-				}
+				possibleNameNode = typeNode.getWithVariables();
+				if (possibleNameNode != null)
+					nameNodes.add(new VirtualNameNode(possibleNameNode, name));
 			}
 			else {
-				possibleNameNode = typeNode.getName(sUNDEFINED);
+				possibleNameNode = typeNode.getUndefined();
 				if (possibleNameNode != null)
-					nameNodes.add(new VNN(null, null, possibleNameNode));
+					nameNodes.add(new VirtualNameNode(possibleNameNode, null));
+
+				/* Since we didn't provide a name, we shouldn't find those that require a name bound to a variable */
+
 			}
 		}
 
 		/* States */
 
 		Set<JobRequest> jobs = Sets.newIdentityHashSet();
-		for (VNN nameNode : nameNodes) {
+		for (VirtualNameNode nameNode : nameNodes) {
 			Set<StateCriteria[]> criteriasSet = nameNode.nameNode.getCriterias();
-			// TODO: Resolve criteria (currently just include them all)
 			for (StateCriteria[] criterias : criteriasSet) {
 
 				/* Handle the required states */
 
 				boolean match = true;
-				for (StateCriteria reqSC : pParam.requiredStates) {
-					if (reqSC instanceof StateValueCriteria) {
-						StateValueCriteria reqSVC = (StateValueCriteria) reqSC;
-						boolean found = !reqSC.isEqual;
-						for (StateCriteria sc : criterias) {
-							if (sc instanceof StateValueCriteria == false)
-								continue;
+				ImmutableSet.Builder<StateCriteria> matchCriteriaBuilder = ImmutableSet.builder();
+				for (StateCriteria reqSC : pDependent.requiredStates) {
+					if (reqSC instanceof StateVariableCriteria) {
+						throw new UnsupportedOperationException(
+							reqSC.getIdentifier() + " not supported for " + pDependent.getIdentifier());
+					}
+					else if (reqSC instanceof StateValueVariableCriteria) {
+						StateValueVariableCriteria reqSVVC = (StateValueVariableCriteria) reqSC;
 
-							StateValueCriteria svc = (StateValueCriteria) sc;
+						/* First resolve to a StateValueCriteria */
 
-							/* Check to see if this criteria matches the state */
-
-							if (svc.state.equals(reqSVC.state)) {
-
-								if (svc.value.equals(reqSVC.value)) {
-
-									/*
-									 * If it does, but we're not supposed to find it, then we're done. This one won't
-									 * match
-									 */
-
-									if (reqSC.isEqual == false) {
-										match = false;
-										break;
-									}
-
-									found = true;
-									break;
-								}
-							}
-						}
-
-						if (found == false)
+						VariableDefinition<?> variableDefinition = pJob.variableMap.get(reqSVVC.variableName);
+						if (variableDefinition == null) {
 							match = false;
-						if (match == false)
 							break;
-					}
-					else if (reqSC instanceof StateVariableCriteria) {
-						throw new UnsupportedOperationException();
-					}
-					else if (reqSC instanceof VariableCriteria) {
-						throw new UnsupportedOperationException();
+						}
+						DependentInfo variableDependentInfo = pJob.executingByParam.get(variableDefinition);
+						if (variableDependentInfo == null) {
+							match = false;
+							break;
+						}
+						if (variableDependentInfo.isResolved == false) {
+							match = false;
+							break;
+						}
+						Object resolvedValue = variableDependentInfo.resolvedValue;
+						if (resolvedValue == null) {
+							match = false;
+							break;
+						}
+						if (String.class.isInstance(resolvedValue) == false) {
+							match = false;
+							break;
+						}
+						StateValueCriteria svc =
+							new StateValueCriteria(reqSVVC.state, reqSVVC.isEqual, (String) resolvedValue);
+
+						/* Now evaluate against that */
+
+						StateCriteria matchCriteria = evaluateCriterias(svc, criterias);
+						if (matchCriteria == null) {
+							match = false;
+							break;
+						}
+						matchCriteriaBuilder.add(matchCriteria);
+
 					}
 					else {
-						/* The parameter criteria is just if a State exists (or not) */
-
-						boolean found = !reqSC.isEqual;
-						for (StateCriteria sc : criterias) {
-							if (sc instanceof VariableCriteria)
-								continue;
-
-							/* Check to see if this criteria matches the state */
-
-							if (sc.state.equals(reqSC.state)) {
-
-								/*
-								 * If it does, but we're not supposed to find it, then we're done. This one won't match
-								 */
-
-								if (reqSC.isEqual == false) {
-									match = false;
-									break;
-								}
-
-								found = true;
-								break;
-							}
-						}
-
-						if (found == false)
+						StateCriteria matchCriteria = evaluateCriterias(reqSC, criterias);
+						if (matchCriteria == null) {
 							match = false;
-						if (match == false)
 							break;
-
+						}
+						matchCriteriaBuilder.add(matchCriteria);
 					}
 				}
 
 				if (match == true) {
 					Set<JobDefinitionImpl> jobsByCriteria = nameNode.nameNode.getJobsByCriteria(criterias);
+					ImmutableSet<StateCriteria> matchCriterias = matchCriteriaBuilder.build();
 					if (jobsByCriteria != null)
 						for (JobDefinitionImpl job : jobsByCriteria) {
-							ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
-							if ((nameNode.variableName != null) && (nameNode.variableValue != null))
-								builder.put(nameNode.variableName, nameNode.variableValue);
-							jobs.add(new JobRequest(job, null, builder.build(), null));
+							jobs.add(new JobRequest(job, null, null, nameNode.resultName, matchCriterias));
 						}
 				}
 			}
 
-			/* If the parameter has any required states or variables, then the no criteria jobs don't comply */
+			/* If the parameter has any required states, then the no criteria jobs don't comply */
 
-			if ((pParam.requiredStates.isEmpty() == true) && (pParam.variables.isEmpty() == true)) {
+			if (pDependent.requiredStates.isEmpty() == true) {
 				for (JobDefinitionImpl job : nameNode.nameNode.getNoCriteriaJobs()) {
-					ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
-					if ((nameNode.variableName != null) && (nameNode.variableValue != null))
-						builder.put(nameNode.variableName, nameNode.variableValue);
-					jobs.add(new JobRequest(job, null, builder.build(), null));
+					jobs.add(new JobRequest(job, null, null, nameNode.resultName, Collections.emptySet()));
 				}
 			}
 		}
 
 		return jobs;
+
+	}
+
+	/**
+	 * Evaluate the test criteria against the possible matches. If it matches, then it returns a resolved possibleMatch
+	 * or null if it doesn't match
+	 *
+	 * @param pTestCritera the test criteria (Must be either StateCriteria or StateValueCriteria
+	 * @param pPossibleMatches the array of possible matches. Can be any of the test of criterias
+	 * @return the 'resolved' possible match (meaning that StateValueVariableCriterias are resolved down to
+	 *         StateValueCriteria's)
+	 */
+	private @Nullable StateCriteria evaluateCriterias(StateCriteria pTestCritera, StateCriteria[] pPossibleMatches) {
+		StateCriteria match = null;
+		if (pTestCritera instanceof StateValueCriteria) {
+			StateValueCriteria reqSVC = (StateValueCriteria) pTestCritera;
+			for (StateCriteria sc : pPossibleMatches) {
+				if (sc instanceof StateValueCriteria) {
+					StateValueCriteria svc = (StateValueCriteria) sc;
+
+					/* Check to see if this criteria matches the state */
+
+					if (svc.state.equals(reqSVC.state)) {
+
+						if (svc.value.equals(reqSVC.value)) {
+
+							/*
+							 * If it does, but we're not supposed to find it, then we're done. This one won't match
+							 */
+
+							if (pTestCritera.isEqual == false) {
+								break;
+							}
+
+							match = svc;
+							break;
+						}
+					}
+				}
+				else if (sc instanceof StateValueVariableCriteria) {
+					StateValueVariableCriteria svvc = (StateValueVariableCriteria) sc;
+
+					if (svvc.state.equals(reqSVC.state)) {
+
+						/* It's a wildcard on the value so that matches */
+
+						match = new StateValueCriteria(svvc.state, svvc.isEqual, reqSVC.value);
+						break;
+					}
+				}
+			}
+		}
+		else if (pTestCritera.getClass().equals(StateCriteria.class)) {
+			/* The parameter criteria is just if a State exists (or not) */
+
+			for (StateCriteria sc : pPossibleMatches) {
+
+				/* Check to see if this criteria matches the state */
+
+				if (sc.state.equals(pTestCritera.state)) {
+
+					/*
+					 * If it does, but we're not supposed to find it, then we're done. This one won't match
+					 */
+
+					if (pTestCritera.isEqual == false) {
+						break;
+					}
+
+					match = sc;
+					break;
+				}
+			}
+		}
+		else
+			throw new UnsupportedOperationException(pTestCritera.getIdentifier() + " not supported for evaluation");
+
+		return match;
 	}
 
 	/**
 	 * Sorts the set of possible jobs to the best one to try.
-	 * 
+	 *
 	 * @param pPossibleJobs
 	 * @return
 	 */
@@ -805,20 +916,13 @@ public class EngineImpl implements ReactionsEngine {
 		/* Now, for each parameter, find the matching dependent */
 
 		for (int i = 0; i < paramLen; i++) {
-			boolean match = false;
-			for (int o = 0; o < pArray.length; o++) {
-				if (pArray[o].clazz.equals(parameterTypes[i])) {
-					invokeParams[i] = pDependents[o];
-					match = true;
-					break;
-				}
-			}
-			if ((match == false) && (pJob.triggerObject != null)) {
-				if (parameterTypes[i].isAssignableFrom(pJob.triggerObject.getClass())) {
-					invokeParams[i] = pJob.triggerObject;
-					match = true;
-				}
-			}
+			invokeParams[i] = pDependents[i];
+			// if ((match == false) && (pJob.triggerObject != null)) {
+			// if (parameterTypes[i].isAssignableFrom(pJob.triggerObject.getClass())) {
+			// invokeParams[i] = pJob.triggerObject;
+			// match = true;
+			// }
+			// }
 		}
 
 		Object result;
@@ -855,7 +959,7 @@ public class EngineImpl implements ReactionsEngine {
 			if (possibleActionNode != null)
 				actionNodes.add(possibleActionNode);
 		}
-		possibleActionNode = mTriggers.get(sUNDEFINED);
+		possibleActionNode = mTriggers.get("__UNDEFINED__");
 		if (possibleActionNode != null)
 			actionNodes.add(possibleActionNode);
 
@@ -869,7 +973,7 @@ public class EngineImpl implements ReactionsEngine {
 				if (possibleTypeNode != null)
 					typeNodes.add(possibleTypeNode);
 			}
-			possibleTypeNode = actionNode.getType(sUNDEFINED);
+			possibleTypeNode = actionNode.getUndefined();
 			if (possibleTypeNode != null)
 				typeNodes.add(possibleTypeNode);
 		}
@@ -884,7 +988,7 @@ public class EngineImpl implements ReactionsEngine {
 				if (possibleNameNode != null)
 					nameNodes.add(possibleNameNode);
 			}
-			possibleNameNode = typeNode.getName(sUNDEFINED);
+			possibleNameNode = typeNode.getUndefined();
 			if (possibleNameNode != null)
 				nameNodes.add(possibleNameNode);
 		}
@@ -918,15 +1022,8 @@ public class EngineImpl implements ReactionsEngine {
 					else if (criteria instanceof StateVariableCriteria) {
 						throw new UnsupportedOperationException();
 					}
-					else if (criteria instanceof VariableCriteria) {
-						VariableCriteria vc = (VariableCriteria) criteria;
-						if ((pStates == null) || (pStates.containsKey(vc.state) == false)) {
-							if (vc.isEqual == false)
-								continue;
-							match = false;
-							break;
-						}
-						// TODO: Remember the variable
+					else if (criteria instanceof StateValueVariableCriteria) {
+						throw new UnsupportedOperationException();
 					}
 					else {
 						if ((pStates == null) || (pStates.containsKey(criteria.state) == false)) {
@@ -942,13 +1039,13 @@ public class EngineImpl implements ReactionsEngine {
 					Set<JobDefinitionImpl> possibleJobs = nameNode.getJobsByCriteria(criterias);
 					if (possibleJobs != null) {
 						for (JobDefinitionImpl job : possibleJobs) {
-							jobs.add(new JobRequest(job, pTriggerObject));
+							jobs.add(new JobRequest(job, pTriggerObject, null, Collections.emptySet()));
 						}
 					}
 				}
 			}
 			for (JobDefinitionImpl job : nameNode.getNoCriteriaJobs()) {
-				jobs.add(new JobRequest(job, pTriggerObject));
+				jobs.add(new JobRequest(job, pTriggerObject, null, Collections.emptySet()));
 			}
 		}
 

@@ -9,6 +9,8 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 public class ActionNode {
 
+	private static final String						sUNDEFINED	= "__UNDEFINED__";
+
 	public final Action								action;
 
 	private final ConcurrentMap<String, TypeNode>	types;
@@ -19,6 +21,16 @@ public class ActionNode {
 	}
 
 	public TypeNode getOrAddType(String pType) {
+		if (pType.startsWith("__") == true)
+			throw new IllegalArgumentException("Types cannot start with __ -> " + pType);
+		return internalGetOrAddType(pType);
+	}
+
+	public TypeNode getOrAddUndefined() {
+		return internalGetOrAddType(sUNDEFINED);
+	}
+
+	private TypeNode internalGetOrAddType(String pType) {
 		TypeNode typeNode = types.get(pType);
 		if (typeNode != null)
 			return typeNode;
@@ -30,5 +42,9 @@ public class ActionNode {
 
 	public @Nullable TypeNode getType(String pType) {
 		return types.get(pType);
+	}
+
+	public @Nullable TypeNode getUndefined() {
+		return types.get(sUNDEFINED);
 	}
 }

@@ -28,8 +28,11 @@ import com.diamondq.reactions.api.ParamBuilder;
 import com.diamondq.reactions.api.PrepResultBuilder;
 import com.diamondq.reactions.api.ResultBuilder;
 import com.diamondq.reactions.api.TriggerBuilder;
+import com.diamondq.reactions.api.VariableBuilder;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -46,7 +49,9 @@ public class JobBuilderImpl implements JobBuilder {
 
 	private @Nullable String									mName;
 
-	private Set<ParamBuilderImpl<?>>							mParams;
+	private List<ParamBuilderImpl<?>>							mParams;
+
+	private Set<VariableBuilderImpl<?>>							mVariables;
 
 	private Set<ResultBuilderImpl<?>>							mResults;
 
@@ -58,7 +63,8 @@ public class JobBuilderImpl implements JobBuilder {
 
 	public JobBuilderImpl(JobContext pJobContext) {
 		mJobContext = pJobContext;
-		mParams = new HashSet<>();
+		mParams = new ArrayList<>();
+		mVariables = new HashSet<>();
 		mResults = new HashSet<>();
 		mPrepResults = new HashSet<>();
 		mTriggers = new HashSet<>();
@@ -215,7 +221,7 @@ public class JobBuilderImpl implements JobBuilder {
 	 * Define a new parameter for this job. The parameter is defined by the class. NOTE: If there are multiple
 	 * parameters that have the same type, you must use the ... When complete defining the param, use the
 	 * ParamBuilder.build() method to return back to this Job builder.
-	 * 
+	 *
 	 * @param pClass the class
 	 * @return the param setup builder
 	 */
@@ -230,13 +236,29 @@ public class JobBuilderImpl implements JobBuilder {
 		mParams.add((ParamBuilderImpl<PT>) pParamSetup);
 	}
 
+	/* Variables */
+
+	/**
+	 * @see com.diamondq.reactions.api.JobBuilder#variable(java.lang.Class, java.lang.String)
+	 */
+	@Override
+	public <VT> VariableBuilder<VT> variable(Class<VT> pClass, String pVariableName) {
+		return new VariableBuilderImpl<VT>(this, pClass, pVariableName);
+	}
+
+	public <VT> void addVariable(VariableBuilder<VT> pVariableSetup) {
+		if (pVariableSetup instanceof VariableBuilderImpl == false)
+			throw new IllegalArgumentException("Only VariableBuilderImpl is supported");
+		mVariables.add((VariableBuilderImpl<VT>) pVariableSetup);
+	}
+
 	/* Results */
 
 	/**
 	 * Define a result this job. The result is defined by the class. NOTE: If there are multiple results that have the
 	 * same type, you must use the ... When complete defining the result, use the ResultBuilder.build() method to return
 	 * back to this Job builder.
-	 * 
+	 *
 	 * @param pClass the class
 	 * @return the result setup builder
 	 */
@@ -257,7 +279,7 @@ public class JobBuilderImpl implements JobBuilder {
 	 * Define a result this job. The result is defined by the class. NOTE: If there are multiple results that have the
 	 * same type, you must use the ... When complete defining the result, use the ResultBuilder.build() method to return
 	 * back to this Job builder.
-	 * 
+	 *
 	 * @param pClass the class
 	 * @return the result setup builder
 	 */
@@ -277,7 +299,7 @@ public class JobBuilderImpl implements JobBuilder {
 	/**
 	 * Define a trigger for this job. The trigger is defined by the class. When complete defining the result, use the
 	 * TriggerBuilder.build() method to return back to this Job builder.
-	 * 
+	 *
 	 * @param pClass the class
 	 * @return the trigger setup builder
 	 */
@@ -289,7 +311,7 @@ public class JobBuilderImpl implements JobBuilder {
 	/**
 	 * Define a trigger for this job. The trigger is defined by the class. When complete defining the result, use the
 	 * TriggerBuilder.build() method to return back to this Job builder.
-	 * 
+	 *
 	 * @param pClass the class
 	 * @return the trigger setup builder
 	 */
@@ -326,8 +348,12 @@ public class JobBuilderImpl implements JobBuilder {
 		return mMethod;
 	}
 
-	public Set<ParamBuilderImpl<?>> getParams() {
+	public List<ParamBuilderImpl<?>> getParams() {
 		return mParams;
+	}
+
+	public Set<VariableBuilderImpl<?>> getVariables() {
+		return mVariables;
 	}
 
 	public Set<ResultBuilderImpl<?>> getResults() {

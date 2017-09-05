@@ -9,6 +9,7 @@ import com.diamondq.reactions.api.impl.ParamBuilderImpl;
 import com.diamondq.reactions.api.impl.PrepResultBuilderImpl;
 import com.diamondq.reactions.api.impl.ResultBuilderImpl;
 import com.diamondq.reactions.api.impl.TriggerBuilderImpl;
+import com.diamondq.reactions.api.impl.VariableBuilderImpl;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -24,6 +25,8 @@ public class JobDefinitionImpl implements JobDefinition {
 	public final @Nullable String				name;
 
 	public final List<ParamDefinition<?>>		params;
+
+	public final Set<VariableDefinition<?>>		variables;
 
 	public final Set<ResultDefinition<?>>		results;
 
@@ -57,6 +60,13 @@ public class JobDefinitionImpl implements JobDefinition {
 			paramListBuilder.add(new ParamDefinition<>(paramBuilder));
 		params = paramListBuilder.build();
 
+		/* variables */
+
+		ImmutableSet.Builder<VariableDefinition<?>> variableListBuilder = ImmutableSet.builder();
+		for (VariableBuilderImpl<?> variableBuilder : pBuilder.getVariables())
+			variableListBuilder.add(new VariableDefinition<>(variableBuilder));
+		variables = variableListBuilder.build();
+
 		/* results */
 
 		ImmutableSet.Builder<ResultDefinition<?>> resultSetBuilder = ImmutableSet.builder();
@@ -86,7 +96,7 @@ public class JobDefinitionImpl implements JobDefinition {
 	/**
 	 * This returns a short 'name' that can be used to identify this JobDefinition. It is usually used for debugging or
 	 * error purposes.
-	 * 
+	 *
 	 * @return the name
 	 */
 	public String getShortName() {

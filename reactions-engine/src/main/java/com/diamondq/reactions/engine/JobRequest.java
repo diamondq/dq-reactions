@@ -1,40 +1,60 @@
 package com.diamondq.reactions.engine;
 
 import com.diamondq.reactions.api.JobParamsBuilder;
+import com.diamondq.reactions.api.impl.StateCriteria;
+import com.diamondq.reactions.engine.definitions.DependentDefinition;
 import com.diamondq.reactions.engine.definitions.JobDefinitionImpl;
 import com.diamondq.reactions.engine.definitions.ParamDefinition;
-import com.google.common.collect.ImmutableMap;
+import com.diamondq.reactions.engine.definitions.ResultDefinition;
+import com.diamondq.reactions.engine.definitions.VariableDefinition;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 
-import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 public class JobRequest {
 
-	public final JobDefinitionImpl						jobDefinition;
+	public final JobDefinitionImpl							jobDefinition;
 
-	public final @Nullable Object						triggerObject;
+	public final @Nullable Object							triggerObject;
 
-	public final Map<String, String>					variables;
+	public final @Nullable JobParamsBuilder					paramsBuilder;
 
-	public final @Nullable JobParamsBuilder				paramsBuilder;
+	public final Map<DependentDefinition<?>, DependentInfo>	executingByParam;
 
-	public final Map<ParamDefinition<?>, DependentInfo>	executingByParam;
+	/**
+	 * Defines a mapping between a variable name and the VariableDefinition. Usually used to find the associated mapping
+	 * in the executingByParam to actually find the resolved value of the Variable
+	 */
+	public final Map<String, VariableDefinition<?>>			variableMap;
 
-	public JobRequest(JobDefinitionImpl pJobDefinition, @Nullable Object pTriggerObject) {
-		this(pJobDefinition, pTriggerObject, Collections.emptyMap(), null);
+	/**
+	 * The 'resolved' result name. Since the name could either come from the definition or from a variable, a place is
+	 * need to store the actual result name.
+	 */
+	public final @Nullable String							resultName;
+
+	public final Set<StateCriteria>							resultStates;
+
+	public JobRequest(JobDefinitionImpl pJobDefinition, @Nullable Object pTriggerObject, @Nullable String pResultName,
+		Set<StateCriteria> pResultStates) {
+		this(pJobDefinition, pTriggerObject, null, pResultName, pResultStates);
 	}
 
-	public JobRequest(JobDefinitionImpl pJobDefinition, @Nullable Object pTriggerObject, Map<String, String> pVariables,
-		@Nullable JobParamsBuilder pBuilder) {
+	public JobRequest(JobDefinitionImpl pJobDefinition, @Nullable Object pTriggerObject,
+		@Nullable JobParamsBuilder pBuilder, @Nullable String pResultName, Set<StateCriteria> pResultStates) {
 		super();
 		jobDefinition = pJobDefinition;
 		triggerObject = pTriggerObject;
-		variables = ImmutableMap.copyOf(pVariables);
 		paramsBuilder = pBuilder;
 		executingByParam = Maps.newConcurrentMap();
+		variableMap = Maps.newConcurrentMap();
+		resultName = pResultName;
+		resultStates = ImmutableSet.copyOf(pResultStates);
 	}
 
 	/**
@@ -44,10 +64,79 @@ public class JobRequest {
 	public String toString() {
 		return getIdentifier();
 	}
-	
+
 	public String getIdentifier() {
 		StringBuilder sb = new StringBuilder();
 		sb.append(jobDefinition.getShortName());
+		boolean displayResultName = true;
+		String tResultName = resultName;
+		if (tResultName != null) {
+			if (jobDefinition.results.size() == 1) {
+				ResultDefinition<?> rd = Iterables.getFirst(jobDefinition.results, null);
+				if (rd != null) {
+					if (tResultName.equals(rd.name) == true)
+						displayResultName = false;
+				}
+			}
+		}
+		else
+			displayResultName = false;
+		boolean displayResultStates = true;
+		if (jobDefinition.results.size() == 1) {
+			ResultDefinition<?> rd = Iterables.getFirst(jobDefinition.results, null);
+			if (rd != null) {
+				if (rd.requiredStates.equals(resultStates) == true)
+					displayResultStates = false;
+			}
+		}
+		if ((displayResultStates == true) || (displayResultName == true)) {
+			sb.append('[');
+			if (displayResultName == true)
+				sb.append("name=").append(tResultName);
+			if (displayResultStates == true) {
+				if (displayResultName == true)
+					sb.append(", ");
+				sb.append("states=");
+				sb.append(resultStates);
+			}
+			sb.append(']');
+		}
+		if (jobDefinition.variables.isEmpty() == false) {
+			sb.append('{');
+			boolean isFirst = true;
+			for (VariableDefinition<?> p : jobDefinition.variables) {
+				if (isFirst == true)
+					isFirst = false;
+				else
+					sb.append(", ");
+				DependentInfo dependentInfo = executingByParam.get(p);
+				if (dependentInfo == null) {
+					sb.append('<');
+					sb.append(p.getIdentifier());
+					sb.append('>');
+				}
+				else {
+					if (dependentInfo.isResolved == true) {
+						sb.append(p.variableName);
+						sb.append('=');
+						if (dependentInfo.resolvedValue == null)
+							sb.append("null");
+						else {
+							if (p.clazz.isAssignableFrom(String.class))
+								sb.append('"').append(dependentInfo.resolvedValue).append('"');
+							else
+								sb.append(dependentInfo.resolvedValue);
+						}
+					}
+					else {
+						sb.append('<');
+						sb.append(p.getIdentifier());
+						sb.append('>');
+					}
+				}
+			}
+			sb.append('}');
+		}
 		sb.append('(');
 		boolean isFirst = true;
 		for (ParamDefinition<?> p : jobDefinition.params) {

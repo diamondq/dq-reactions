@@ -87,7 +87,7 @@ public interface JobBuilder {
 	 * Define a new parameter for this job. The parameter is defined by the class. NOTE: If there are multiple
 	 * parameters that have the same type, you must use the ... When complete defining the param, use the
 	 * ParamBuilder.build() method to return back to this Job builder.
-	 * 
+	 *
 	 * @param pClass the class
 	 * @return the param setup builder
 	 */
@@ -99,7 +99,7 @@ public interface JobBuilder {
 	 * Define a result this job. The result is defined by the class. NOTE: If there are multiple results that have the
 	 * same type, you must use the ... When complete defining the result, use the ResultBuilder.build() method to return
 	 * back to this Job builder.
-	 * 
+	 *
 	 * @param pClass the class
 	 * @return the result setup builder
 	 */
@@ -111,7 +111,7 @@ public interface JobBuilder {
 	 * Define a result this job. The result is defined by the class. NOTE: If there are multiple results that have the
 	 * same type, you must use the ... When complete defining the result, use the ResultBuilder.build() method to return
 	 * back to this Job builder.
-	 * 
+	 *
 	 * @param pClass the class
 	 * @return the result setup builder
 	 */
@@ -122,7 +122,7 @@ public interface JobBuilder {
 	/**
 	 * Define a trigger for this job. The trigger is defined by the class. When complete defining the result, use the
 	 * TriggerBuilder.build() method to return back to this Job builder.
-	 * 
+	 *
 	 * @param pClass the class
 	 * @return the trigger setup builder
 	 */
@@ -131,7 +131,7 @@ public interface JobBuilder {
 	/**
 	 * Define a trigger for this job. The trigger is defined by the class. When complete defining the result, use the
 	 * TriggerBuilder.build() method to return back to this Job builder.
-	 * 
+	 *
 	 * @param pClass the class
 	 * @return the trigger setup builder
 	 */
@@ -142,4 +142,16 @@ public interface JobBuilder {
 	public JobBuilder guard(Function1<?, Boolean> pGuardFunction);
 
 	public JobDefinition build();
+
+	/* Variables */
+
+	/**
+	 * Define a new variableName for this job. The variableName is defined by the class and a name. When complete
+	 * defining the variableName, use the VariableBuilder.build() method to return back to this Job builder.
+	 *
+	 * @param pClass the class
+	 * @param pVariableName the variable name
+	 * @return the Variable setup builder
+	 */
+	public <VT> VariableBuilder<VT> variable(Class<VT> pClass, String pVariableName);
 }

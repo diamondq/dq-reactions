@@ -1,7 +1,5 @@
 package com.diamondq.reactions.engine.evals;
 
-import com.diamondq.reactions.engine.EngineImpl;
-
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -9,38 +7,53 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 public class TypeNode {
 
+	private static final String						sWITH_VARIABLES	= "__VARIABLES__";
+
+	private static final String						sUNDEFINED		= "__UNDEFINED__";
+
 	public final String								type;
 
-	private final ConcurrentMap<String, NameNode>	names;
+	private final ConcurrentMap<String, NameNode>	mNames;
 
 	public TypeNode(String pType) {
 		type = pType;
-		names = new ConcurrentHashMap<>();
+		mNames = new ConcurrentHashMap<>();
 	}
 
-	public NameNode getOrAddName(String pName) {
-		NameNode nameNode = names.get(pName);
+	private NameNode internalGetOrAddName(String pName) {
+		NameNode nameNode = mNames.get(pName);
 		if (nameNode != null)
 			return nameNode;
 		NameNode newNameNode = new NameNode(pName);
-		if ((nameNode = names.putIfAbsent(pName, newNameNode)) == null)
+		if ((nameNode = mNames.putIfAbsent(pName, newNameNode)) == null)
 			nameNode = newNameNode;
 		return nameNode;
 	}
 
-	public NameNode getOrAddVariableName(String pNameByVariable) {
-		NameNode nameNode = names.get(EngineImpl.sVARIABLE);
-		if (nameNode == null) {
-			NameNode newNameNode = new VariableNameNode();
-			if ((nameNode = names.putIfAbsent(EngineImpl.sVARIABLE, newNameNode)) == null)
-				nameNode = newNameNode;
-		}
-		VariableNameNode vnn = (VariableNameNode)nameNode;
-		return vnn.getOrAddVariable(pNameByVariable);
+	public NameNode getOrAddName(String pName) {
+		if (pName.startsWith("__") == true)
+			throw new IllegalArgumentException("Names cannot start with __ -> " + pName);
+		return internalGetOrAddName(pName);
+	}
+
+	public NameNode getOrAddWithVariables() {
+		return internalGetOrAddName(sWITH_VARIABLES);
+	}
+
+	public NameNode getOrAddUndefined() {
+		return internalGetOrAddName(sUNDEFINED);
 	}
 
 	public @Nullable NameNode getName(String pName) {
-		return names.get(pName);
+		return mNames.get(pName);
+	}
+
+	public @Nullable NameNode getWithVariables() {
+		return mNames.get(sWITH_VARIABLES);
+	}
+
+	public @Nullable NameNode getUndefined() {
+		return mNames.get(sUNDEFINED);
 	}
 
 }

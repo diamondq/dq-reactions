@@ -10,6 +10,9 @@ public class PrepResultBuilderImpl<RT> extends CommonResultBuilderImpl<RT, PrepR
 		super(pJobSetup, pClass);
 	}
 
+	/**
+	 * @see com.diamondq.reactions.api.PrepResultBuilder#stateByVariable(java.lang.String)
+	 */
 	@Override
 	public PrepResultBuilderImpl<RT> stateByVariable(String pVariable) {
 		mRequiredStates.add(new StateVariableCriteria(pVariable, true));
@@ -17,8 +20,17 @@ public class PrepResultBuilderImpl<RT> extends CommonResultBuilderImpl<RT, PrepR
 	}
 
 	/**
+	 * @see com.diamondq.reactions.api.PrepResultBuilder#stateValueByVariable(java.lang.String, java.lang.String)
+	 */
+	@Override
+	public PrepResultBuilder<RT> stateValueByVariable(String pState, String pVariable) {
+		mRequiredStates.add(new StateValueVariableCriteria(pState, pVariable, true));
+		return this;
+	}
+
+	/**
 	 * Finish this param and return back to the job
-	 * 
+	 *
 	 * @return the job builder
 	 */
 	@Override

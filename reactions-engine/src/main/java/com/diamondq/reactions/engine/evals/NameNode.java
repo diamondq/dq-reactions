@@ -2,8 +2,8 @@ package com.diamondq.reactions.engine.evals;
 
 import com.diamondq.reactions.api.impl.StateCriteria;
 import com.diamondq.reactions.api.impl.StateValueCriteria;
+import com.diamondq.reactions.api.impl.StateValueVariableCriteria;
 import com.diamondq.reactions.api.impl.StateVariableCriteria;
-import com.diamondq.reactions.api.impl.VariableCriteria;
 import com.diamondq.reactions.engine.definitions.JobDefinitionImpl;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
@@ -60,7 +60,7 @@ public class NameNode {
 				}
 				if (pO1 instanceof StateValueCriteria) {
 					if (pO2 instanceof StateValueCriteria == false) {
-						if ((pO2 instanceof StateVariableCriteria) || (pO2 instanceof VariableCriteria))
+						if ((pO2 instanceof StateVariableCriteria) || (pO2 instanceof StateValueVariableCriteria))
 							return -1;
 						return 1;
 					}
@@ -69,18 +69,19 @@ public class NameNode {
 				else if (pO1 instanceof StateVariableCriteria) {
 					if (pO2 instanceof StateVariableCriteria)
 						return 0;
-					if (pO2 instanceof VariableCriteria)
+					if ((pO2 instanceof StateValueVariableCriteria))
 						return -1;
 					return 1;
 				}
-				else if (pO1 instanceof VariableCriteria) {
-					if (pO2 instanceof VariableCriteria == false)
+				else if (pO1 instanceof StateValueVariableCriteria) {
+					if (pO2 instanceof StateValueVariableCriteria == false) {
 						return 1;
-					return ((VariableCriteria) pO1).variableName.compareTo(((VariableCriteria) pO2).variableName);
+					}
+					return ((StateValueVariableCriteria) pO1).variableName
+						.compareTo(((StateValueVariableCriteria) pO2).variableName);
 				}
 				else {
-					if ((pO2 instanceof StateValueCriteria) || (pO2 instanceof StateVariableCriteria)
-						|| (pO2 instanceof VariableCriteria))
+					if ((pO2 instanceof StateValueCriteria) || (pO2 instanceof StateVariableCriteria))
 						return -1;
 					return 0;
 				}

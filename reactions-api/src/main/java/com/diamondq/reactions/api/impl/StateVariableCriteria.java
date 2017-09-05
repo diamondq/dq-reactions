@@ -1,5 +1,8 @@
 package com.diamondq.reactions.api.impl;
 
+/**
+ * Defines a state by a variable (similar to StateCriteria({variable}))
+ */
 public class StateVariableCriteria extends StateCriteria {
 
 	public StateVariableCriteria(String pState, boolean pIsEqual) {
