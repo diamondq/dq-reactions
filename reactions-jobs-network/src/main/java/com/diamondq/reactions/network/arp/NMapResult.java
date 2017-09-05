@@ -23,10 +23,18 @@ public class NMapResult {
 		sb.append("   scanDate=");
 		sb.append(scanDate.toString());
 		sb.append("\n   hosts=[\n");
-		for(NMapHostInfo h : hosts)
+		for (NMapHostInfo h : hosts)
 			sb.append(h.toSerializedString());
 		sb.append("   ]\n");
 		sb.append(")\n");
 		return sb.toString();
+	}
+
+	/**
+	 * @see java.lang.Object#toString()
+	 */
+	@Override
+	public String toString() {
+		return toSerializedString();
 	}
 }
