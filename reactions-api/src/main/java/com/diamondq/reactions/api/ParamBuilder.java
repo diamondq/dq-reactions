@@ -40,8 +40,8 @@ public interface ParamBuilder<PT> extends CommonBuilder<PT, ParamBuilder<PT>> {
 	public ParamBuilder<PT> stateValueByVariable(String pState, String pVariable);
 
 	/**
-	 * Defines that the value of the param is defined by a variableName. NOTE: This is only supported for String.class based
-	 * parameters.
+	 * Defines that the value of the param is defined by a variableName. NOTE: This is only supported for String.class
+	 * based parameters.
 	 *
 	 * @param pVariableName the variableName name
 	 * @return the param builder
@@ -55,6 +55,13 @@ public interface ParamBuilder<PT> extends CommonBuilder<PT, ParamBuilder<PT>> {
 	 * @return the param builder
 	 */
 	public <A extends JobParamsBuilder, B> ParamBuilder<PT> valueByInput(Function<A, B> pSupplier);
+
+	/**
+	 * Defines that the value of the param is defined by what triggered this function
+	 *
+	 * @return the param builder
+	 */
+	public ParamBuilder<PT> valueByTrigger();
 
 	/**
 	 * Finish this param and return back to the job

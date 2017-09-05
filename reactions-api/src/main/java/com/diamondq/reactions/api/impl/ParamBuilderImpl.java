@@ -14,6 +14,8 @@ public class ParamBuilderImpl<PT> extends CommonBuilderImpl<PT, ParamBuilder<PT>
 
 	private @Nullable Function<JobParamsBuilder, ?>	mValueByInput;
 
+	private boolean									mValueByTrigger	= false;
+
 	public ParamBuilderImpl(JobBuilderImpl pJobSetup, Class<PT> pClass) {
 		super(pJobSetup, pClass);
 	}
@@ -86,6 +88,19 @@ public class ParamBuilderImpl<PT> extends CommonBuilderImpl<PT, ParamBuilder<PT>
 
 	public @Nullable Function<JobParamsBuilder, ?> getValueByInput() {
 		return mValueByInput;
+	}
+
+	/**
+	 * @see com.diamondq.reactions.api.ParamBuilder#valueByTrigger()
+	 */
+	@Override
+	public ParamBuilder<PT> valueByTrigger() {
+		mValueByTrigger = true;
+		return this;
+	}
+
+	public boolean isValueByTrigger() {
+		return mValueByTrigger;
 	}
 
 	/**

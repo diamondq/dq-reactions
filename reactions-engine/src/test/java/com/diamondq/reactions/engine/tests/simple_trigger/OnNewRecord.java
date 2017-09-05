@@ -13,8 +13,10 @@ public class OnNewRecord extends AbstractNoParamsJobInfo {
 	@ConfigureReaction
 	public void setupJob(JobContext pContext) {
 		// @formatter:off
-		pContext.registerJob(pContext.newJobBuilder().method(this::modifyRecord).info(this)
+		pContext.registerJob(pContext.newJobBuilder()
+			.method(this::modifyRecord).info(this)
 			.triggerCollection(Record.class).action(Action.INSERT).build()
+			.param(Record.class).valueByTrigger().build()
 			.param(OtherDependent.class).isTransient().build()
 		.build());
 		// @formatter:on

@@ -189,9 +189,8 @@ public class EngineImpl implements ReactionsEngine {
 			if (variable.valueByResultName == true)
 				valueByResultName = true;
 			String valueByResultStateValue = variable.valueByResultStateValue;
-			String name = variable.variableName;
-			if ((valueByResultStateValue != null) && (name != null))
-				builder.add(new StateValueVariableCriteria(valueByResultStateValue, name, true));
+			if ((valueByResultStateValue != null))
+				builder.add(new StateValueVariableCriteria(valueByResultStateValue, variable.variableName, true));
 		}
 		Set<StateCriteria> variableRequiredStates = builder.build();
 
@@ -366,8 +365,7 @@ public class EngineImpl implements ReactionsEngine {
 				if (dependent instanceof VariableDefinition<?>) {
 					VariableDefinition<?> variable = (VariableDefinition<?>) dependent;
 					String name = variable.variableName;
-					if (name != null)
-						pJob.variableMap.put(name, variable);
+					pJob.variableMap.put(name, variable);
 				}
 			}
 
@@ -426,6 +424,13 @@ public class EngineImpl implements ReactionsEngine {
 				JobParamsBuilder paramsBuilder = pJob.paramsBuilder;
 				if ((dependentInfo.isResolved == false) && (valueByInput != null) && (paramsBuilder != null)) {
 					dependentInfo.resolvedValue = valueByInput.apply(paramsBuilder);
+					dependentInfo.isResolved = true;
+				}
+
+				/* If it's a value by trigger */
+
+				if ((dependentInfo.isResolved == false) && (param.valueByTrigger == true)) {
+					dependentInfo.resolvedValue = pJob.triggerObject;
 					dependentInfo.isResolved = true;
 				}
 			}
