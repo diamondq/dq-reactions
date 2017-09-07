@@ -394,6 +394,16 @@ public class EngineImpl implements ReactionsEngine {
 						}
 					}
 				}
+
+				/* If there is a valueByInput, then use that */
+
+				Function<JobParamsBuilder, ?> valueByInput = variable.valueByInput;
+				JobParamsBuilder paramsBuilder = pJob.paramsBuilder;
+				if ((dependentInfo.isResolved == false) && (valueByInput != null) && (paramsBuilder != null)) {
+					dependentInfo.resolvedValue = convert(valueByInput.apply(paramsBuilder), variable.clazz);
+					dependentInfo.isResolved = true;
+				}
+
 			}
 
 			/* Use a job variableName if present */
@@ -409,10 +419,11 @@ public class EngineImpl implements ReactionsEngine {
 							if (variableDependentInfo.isResolved == false)
 								throw new IllegalStateException("The variable " + variableDefinition.getIdentifier()
 									+ " is not resolved by the time it was used in parameter " + param.getIdentifier());
-							if (String.class.isInstance(variableDependentInfo.resolvedValue) == false)
-								throw new IllegalStateException(
-									"Only a param of String.class is allowed to use the valueByVariable");
-							dependentInfo.resolvedValue = variableDependentInfo.resolvedValue;
+
+							/* Coerce the variable resolved value into the type needed by the dependent */
+
+							Object paramValue = convert(variableDependentInfo.resolvedValue, param.clazz);
+							dependentInfo.resolvedValue = paramValue;
 							dependentInfo.isResolved = true;
 						}
 					}
@@ -600,6 +611,55 @@ public class EngineImpl implements ReactionsEngine {
 		}
 	}
 
+	/**
+	 * Attempts to convert an object from one type to another
+	 *
+	 * @param pValue the object
+	 * @param pClazz the expected class
+	 * @return the value or throws an exception if it can't be converted
+	 */
+	private <C> @Nullable C convert(@Nullable Object pValue, Class<C> pClazz) {
+		if (pValue == null) {
+			if (pClazz.isPrimitive() == true)
+				throw new IllegalArgumentException("Unable to convert a null value to a " + pClazz.getName());
+			return null;
+		}
+
+		/* If it already matches, then just return it */
+
+		Object r;
+		if (pClazz.isInstance(pValue))
+			r = pValue;
+		else {
+
+			/* Handle some basic conversions */
+
+			if (pValue instanceof String) {
+				if (pClazz.equals(Integer.class)) {
+					r = Integer.parseInt((String) pValue);
+				}
+				else
+					throw new IllegalArgumentException(
+						"Unable to convert " + pValue.getClass().getName() + " to " + pClazz.getName());
+			}
+			else if (pValue instanceof Integer) {
+				if (pClazz.equals(String.class))
+					r = pValue.toString();
+				else
+					throw new IllegalArgumentException(
+						"Unable to convert " + pValue.getClass().getName() + " to " + pClazz.getName());
+			}
+			else
+				throw new IllegalArgumentException(
+					"Unable to convert " + pValue.getClass().getName() + " to " + pClazz.getName());
+		}
+
+		@SuppressWarnings("unchecked")
+		C result = (C) r;
+		return result;
+
+	}
+
 	@SuppressWarnings("null")
 	private <RESULT> void processResult(JobRequest pJob, ExtendedCompletableFuture<RESULT> pResult,
 		@Nullable Object result) {
@@ -765,7 +825,8 @@ public class EngineImpl implements ReactionsEngine {
 							match = false;
 							break;
 						}
-						if (String.class.isInstance(resolvedValue) == false) {
+						resolvedValue = convert(resolvedValue, String.class);
+						if (resolvedValue == null) {
 							match = false;
 							break;
 						}

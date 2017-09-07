@@ -1,5 +1,7 @@
 package com.diamondq.reactions.api;
 
+import java.util.function.Function;
+
 public interface VariableBuilder<VT> extends CommonBuilder<VT, VariableBuilder<VT>> {
 
 	/**
@@ -33,6 +35,14 @@ public interface VariableBuilder<VT> extends CommonBuilder<VT, VariableBuilder<V
 	 * @return the Variable Builder
 	 */
 	public VariableBuilder<VT> valueByResultName();
+
+	/**
+	 * Defines that the value of the Variable is defined by a supplier function
+	 *
+	 * @param pSupplier the supplier
+	 * @return the Variable builder
+	 */
+	public <A extends JobParamsBuilder, B> VariableBuilder<VT> valueByInput(Function<A, B> pSupplier);
 
 	/**
 	 * Finish this variableName and return back to the job
