@@ -36,6 +36,19 @@ public class ArpParser implements JobInfo<Map<InetAddress, Collection<ArpRecord>
 		public @Nullable String getMessage() {
 			return mMessage;
 		}
+
+		/**
+		 * @see com.diamondq.reactions.api.JobParamsBuilder#setParam(java.lang.String, java.lang.Object)
+		 */
+		@Override
+		public void setParam(String pKey, Object pValue) {
+			if (pKey.equals("date"))
+				mDate = (Date) pValue;
+			else if (pKey.equals("message"))
+				mMessage = (String) pValue;
+			else
+				throw new IllegalArgumentException("Unrecognized param key: " + pKey);
+		}
 	}
 
 	/**

@@ -36,6 +36,17 @@ public class KnownProcessLookup implements JobInfo<@Nullable Void, KnownProcessL
 		String getName() {
 			return name;
 		}
+
+		/**
+		 * @see com.diamondq.reactions.api.JobParamsBuilder#setParam(java.lang.String, java.lang.Object)
+		 */
+		@Override
+		public void setParam(String pKey, Object pValue) {
+			if (pKey.equals("name"))
+				name = (String) pValue;
+			else
+				throw new IllegalArgumentException("Unrecognized param key: " + pKey);
+		}
 	}
 
 	private final ProcessLauncher mWhereIsLauncher;
