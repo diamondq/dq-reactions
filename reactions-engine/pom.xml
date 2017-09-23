@@ -37,6 +37,10 @@
 			<artifactId>common-model-standard</artifactId>
 		</dependency>
 		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-lang3</artifactId>
+		</dependency>
+		<dependency>
 			<groupId>com.diamondq.common.java.config</groupId>
 			<artifactId>common-config-core</artifactId>
 			<scope>test</scope>
@@ -56,8 +60,8 @@
 			<artifactId>weld-junit4</artifactId>
 			<scope>test</scope>
 		</dependency>
-		<!-- <dependency> <groupId>org.jglue.cdi-unit</groupId> <artifactId>cdi-unit</artifactId> 
-			<version>3.1.2</version> <scope>test</scope> <exclusions> <exclusion> <groupId>commons-logging</groupId> 
+		<!-- <dependency> <groupId>org.jglue.cdi-unit</groupId> <artifactId>cdi-unit</artifactId>
+			<version>3.1.2</version> <scope>test</scope> <exclusions> <exclusion> <groupId>commons-logging</groupId>
 			<artifactId>commons-logging</artifactId> </exclusion> </exclusions> </dependency> -->
 		<dependency>
 			<groupId>ch.qos.logback</groupId>

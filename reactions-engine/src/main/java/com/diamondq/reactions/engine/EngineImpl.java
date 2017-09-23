@@ -2,6 +2,7 @@ package com.diamondq.reactions.engine;
 
 import com.diamondq.common.config.Config;
 import com.diamondq.common.lambda.future.ExtendedCompletableFuture;
+import com.diamondq.common.lambda.interfaces.Consumer1;
 import com.diamondq.common.model.interfaces.Toolkit;
 import com.diamondq.reactions.api.Action;
 import com.diamondq.reactions.api.JobContext;
@@ -33,17 +34,24 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArraySet;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -53,45 +61,58 @@ import javax.enterprise.event.Event;
 import javax.enterprise.event.Observes;
 import javax.inject.Inject;
 
+import org.apache.commons.lang3.tuple.Pair;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.opentracing.ActiveSpan;
+import io.opentracing.ActiveSpan.Continuation;
 import net.jodah.typetools.TypeResolver;
 
 @ApplicationScoped
 public class EngineImpl implements ReactionsEngine {
 
-	private static final Logger									sLogger				=
+	private static final Logger										sLogger				=
 		LoggerFactory.getLogger(EngineImpl.class);
 
-	private static final String									sPERSISTENT_STATE	= "persistent";
+	private static final String										sPERSISTENT_STATE	= "persistent";
 
-	private final Store											mPersistentStore;
+	private final Store												mPersistentStore;
 
-	private final Store											mTransientStore;
+	private final Store												mTransientStore;
 
-	private final CopyOnWriteArraySet<JobDefinitionImpl>		mJobs;
+	private final CopyOnWriteArraySet<JobDefinitionImpl>			mJobs;
 
-	private final ConcurrentMap<String, JobDefinitionImpl>		mJobByName;
+	private final ConcurrentMap<String, JobDefinitionImpl>			mJobByName;
 
-	private final ConcurrentMap<Class<?>, JobDefinitionImpl>	mJobByInfoClass;
+	private final ConcurrentMap<Class<?>, JobDefinitionImpl>		mJobByInfoClass;
 
 	/* Trigger tree */
 
-	private final ConcurrentMap<String, ActionNode>				mTriggers;
+	private final ConcurrentMap<String, ActionNode>					mTriggers;
 
-	private final ConcurrentMap<String, TypeNode>				mResultTree;
+	private final ConcurrentMap<String, TypeNode>					mResultTree;
 
-	private final CDIObservingExtension							mObservations;
+	private final CDIObservingExtension								mObservations;
 
-	private final ExecutorService								mExecutorService;
+	private final ScheduledExecutorService							mExecutorService;
 
-	private final Event<ReactionsEngineInitializedEvent>		mInitializedEvent;
+	private final Event<ReactionsEngineInitializedEvent>			mInitializedEvent;
+
+	/* Trackers */
+
+	private final ConcurrentMap<String, Pair<JobRequest, String>>	mPendingTrackers;
+
+	private final ConcurrentMap<String, JobRequest>					mActiveTrackers;
+
+	private final int												mTrackerRetryInterval;
+
+	private volatile @Nullable ScheduledFuture<?>					mScheduledRetry;
 
 	@Inject
-	public EngineImpl(Toolkit pToolkit, Config pConfig, ExecutorService pExecutorService,
+	public EngineImpl(Toolkit pToolkit, Config pConfig, ScheduledExecutorService pExecutorService,
 		CDIObservingExtension pExtension, Event<ReactionsEngineInitializedEvent> pInitializedEvent) {
 		mTriggers = Maps.newConcurrentMap();
 		mResultTree = Maps.newConcurrentMap();
@@ -101,6 +122,9 @@ public class EngineImpl implements ReactionsEngine {
 		mJobs = Sets.newCopyOnWriteArraySet();
 		mJobByInfoClass = Maps.newConcurrentMap();
 		mInitializedEvent = pInitializedEvent;
+
+		mPendingTrackers = Maps.newConcurrentMap();
+		mActiveTrackers = Maps.newConcurrentMap();
 
 		/* Persistent */
 
@@ -118,6 +142,13 @@ public class EngineImpl implements ReactionsEngine {
 
 		mTransientStore = new Store(pToolkit, transientScopeName);
 
+		/* Pending try interval */
+
+		Integer trackerRetryInterval = pConfig.bind("reaction.engine.tracker.interval", Integer.class);
+		if (trackerRetryInterval == null)
+			trackerRetryInterval = 60;
+
+		mTrackerRetryInterval = trackerRetryInterval;
 	}
 
 	public void init(@Observes @Initialized(ApplicationScoped.class) Object init) {
@@ -244,6 +275,117 @@ public class EngineImpl implements ReactionsEngine {
 	}
 
 	/**
+	 * @see com.diamondq.reactions.api.ReactionsEngine#on(com.diamondq.reactions.api.JobInfo,
+	 *      com.diamondq.reactions.api.JobParamsBuilder, java.lang.String,
+	 *      com.diamondq.common.lambda.interfaces.Consumer1, com.diamondq.common.lambda.interfaces.Consumer1)
+	 */
+	@Override
+	@SuppressWarnings("null")
+	public <RESULT, JPB extends JobParamsBuilder, T extends JobInfo<RESULT, JPB>> String on(T pJob, JPB pBuilder,
+		@Nullable String pName, @Nullable Consumer1<RESULT> pOnCreation, @Nullable Consumer1<RESULT> pOnDestruction) {
+		JobDefinitionImpl definition = mJobByInfoClass.get(pJob.getClass());
+		if (definition == null) {
+			sLogger.debug("Couldn't find " + pJob.getClass().getName());
+			throw new IllegalArgumentException("The job info " + pJob.getClass().getName() + " could not be found");
+		}
+
+		sLogger.debug("Receiving job submission for {}", definition.getShortName());
+
+		@SuppressWarnings("unchecked")
+		JobRequest request = new JobRequest(definition, null, pBuilder, pName, Collections.emptySet(),
+			(Consumer1<Object>) pOnCreation, (Consumer1<Object>) pOnDestruction);
+		String key = UUID.randomUUID().toString();
+		mPendingTrackers.put(key, Pair.of(request, null));
+		tryTracker(key, request, null);
+
+		/* If we don't have a retry running, then start the scheduler */
+
+		synchronized (this) {
+			if ((mPendingTrackers.size() > 0) && (mScheduledRetry == null)) {
+				mScheduledRetry = mExecutorService.scheduleAtFixedRate(this::retryTrackers, 0, mTrackerRetryInterval,
+					TimeUnit.SECONDS);
+			}
+		}
+		return key;
+	}
+
+	private void retryTrackers() {
+		sLogger.debug("Attempting to retry all pending trackers...");
+		Set<String> trackerKeys = Sets.newHashSet(mPendingTrackers.keySet());
+		for (String key : trackerKeys) {
+			Pair<JobRequest, String> request = mPendingTrackers.get(key);
+			if (request == null)
+				continue;
+
+			Continuation continuation = request.getKey().continuation;
+			if (continuation == null)
+				tryTracker(key, request.getKey(), request.getRight());
+			else
+				try (ActiveSpan span = continuation.activate()) {
+					tryTracker(key, request.getKey(), request.getRight());
+				}
+		}
+	}
+
+	private void tryTracker(String key, JobRequest request, @Nullable String pPreviousFailure) {
+		ExtendedCompletableFuture<Object> future = submit(request);
+		future.whenComplete((r, ex) -> {
+			if (ex != null) {
+				if (ex instanceof AbstractReactionsNotErrorException == false) {
+					/* This is a real error. Report it, and remove the tracker */
+
+					sLogger.error("Error processing tracker. Tracker is being disabled", ex);
+					cancelOn(key);
+					return;
+				}
+				String errorString;
+				try {
+					StringWriter sw = new StringWriter();
+					try (PrintWriter pw = new PrintWriter(sw)) {
+						ex.printStackTrace(pw);
+					}
+					sw.close();
+					errorString = sw.toString();
+				}
+				catch (IOException internalEx) {
+					errorString = UUID.randomUUID().toString();
+				}
+				if (Objects.equals(errorString, pPreviousFailure) == false) {
+					sLogger.debug("Unable to resolve tracker", ex);
+					mPendingTrackers.replace(key, Pair.of(request, pPreviousFailure), Pair.of(request, errorString));
+				}
+				else
+					sLogger.debug("Unable to resolve tracker");
+				return;
+			}
+
+			/* Move this tracker from pending to active */
+
+			if (mPendingTrackers.remove(key, Pair.of(request, pPreviousFailure)) == true) {
+				mActiveTrackers.put(key, request);
+				Consumer1<Object> onC = request.onCreation;
+				if (onC != null)
+					onC.accept(r);
+			}
+		});
+	}
+
+	/**
+	 * @see com.diamondq.reactions.api.ReactionsEngine#cancelOn(java.lang.String)
+	 */
+	@Override
+	public void cancelOn(String pToken) {
+		synchronized (this) {
+			if (mPendingTrackers.remove(pToken) != null) {
+				if ((mPendingTrackers.size() == 0) && (mScheduledRetry != null)) {
+					mScheduledRetry.cancel(false);
+					mScheduledRetry = null;
+				}
+			}
+		}
+	}
+
+	/**
 	 * @see com.diamondq.reactions.api.ReactionsEngine#submit(java.lang.Class)
 	 */
 	@Override
@@ -267,7 +409,7 @@ public class EngineImpl implements ReactionsEngine {
 
 		sLogger.debug("Receiving job submission for {}", definition.getShortName());
 
-		JobRequest request = new JobRequest(definition, null, pBuilder, null, Collections.emptySet());
+		JobRequest request = new JobRequest(definition, null, pBuilder, null, Collections.emptySet(), null, null);
 		return submit(request);
 	}
 
@@ -442,6 +584,12 @@ public class EngineImpl implements ReactionsEngine {
 
 				if ((dependentInfo.isResolved == false) && (param.valueByTrigger == true)) {
 					dependentInfo.resolvedValue = pJob.triggerObject;
+					dependentInfo.isResolved = true;
+				}
+
+				if ((dependentInfo.isResolved == false) && (param.valueByTrigger == false) && (valueByInput == null)
+					&& (paramsBuilder != null) && (param.clazz.isInstance(paramsBuilder))) {
+					dependentInfo.resolvedValue = paramsBuilder;
 					dependentInfo.isResolved = true;
 				}
 			}
@@ -858,7 +1006,7 @@ public class EngineImpl implements ReactionsEngine {
 					ImmutableSet<StateCriteria> matchCriterias = matchCriteriaBuilder.build();
 					if (jobsByCriteria != null)
 						for (JobDefinitionImpl job : jobsByCriteria) {
-							jobs.add(new JobRequest(job, null, null, nameNode.resultName, matchCriterias));
+							jobs.add(new JobRequest(job, null, null, nameNode.resultName, matchCriterias, null, null));
 						}
 				}
 			}
@@ -867,7 +1015,7 @@ public class EngineImpl implements ReactionsEngine {
 
 			if (pDependent.requiredStates.isEmpty() == true) {
 				for (JobDefinitionImpl job : nameNode.nameNode.getNoCriteriaJobs()) {
-					jobs.add(new JobRequest(job, null, null, nameNode.resultName, Collections.emptySet()));
+					jobs.add(new JobRequest(job, null, null, nameNode.resultName, Collections.emptySet(), null, null));
 				}
 			}
 		}

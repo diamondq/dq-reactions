@@ -1,5 +1,6 @@
 package com.diamondq.reactions.engine;
 
+import com.diamondq.common.lambda.interfaces.Consumer1;
 import com.diamondq.reactions.api.JobParamsBuilder;
 import com.diamondq.reactions.api.impl.StateCriteria;
 import com.diamondq.reactions.engine.definitions.DependentDefinition;
@@ -15,6 +16,10 @@ import java.util.Map;
 import java.util.Set;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
+
+import io.opentracing.ActiveSpan;
+import io.opentracing.ActiveSpan.Continuation;
+import io.opentracing.util.GlobalTracer;
 
 public class JobRequest {
 
@@ -40,13 +45,20 @@ public class JobRequest {
 
 	public final Set<StateCriteria>							resultStates;
 
+	public final @Nullable Consumer1<Object>				onCreation;
+
+	public final @Nullable Consumer1<Object>				onDestruction;
+
+	public final @Nullable Continuation						continuation;
+
 	public JobRequest(JobDefinitionImpl pJobDefinition, @Nullable Object pTriggerObject, @Nullable String pResultName,
 		Set<StateCriteria> pResultStates) {
-		this(pJobDefinition, pTriggerObject, null, pResultName, pResultStates);
+		this(pJobDefinition, pTriggerObject, null, pResultName, pResultStates, null, null);
 	}
 
 	public JobRequest(JobDefinitionImpl pJobDefinition, @Nullable Object pTriggerObject,
-		@Nullable JobParamsBuilder pBuilder, @Nullable String pResultName, Set<StateCriteria> pResultStates) {
+		@Nullable JobParamsBuilder pBuilder, @Nullable String pResultName, Set<StateCriteria> pResultStates,
+		@Nullable Consumer1<Object> pOnCreation, @Nullable Consumer1<Object> pOnDestruction) {
 		super();
 		jobDefinition = pJobDefinition;
 		triggerObject = pTriggerObject;
@@ -55,6 +67,13 @@ public class JobRequest {
 		variableMap = Maps.newConcurrentMap();
 		resultName = pResultName;
 		resultStates = ImmutableSet.copyOf(pResultStates);
+		onCreation = pOnCreation;
+		onDestruction = pOnDestruction;
+		ActiveSpan activeSpan = GlobalTracer.get().activeSpan();
+		if (activeSpan == null)
+			continuation = null;
+		else
+			continuation = activeSpan.capture();
 	}
 
 	/**
