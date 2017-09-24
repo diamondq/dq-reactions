@@ -17,10 +17,6 @@ import java.util.Set;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import io.opentracing.ActiveSpan;
-import io.opentracing.ActiveSpan.Continuation;
-import io.opentracing.util.GlobalTracer;
-
 public class JobRequest {
 
 	public final JobDefinitionImpl							jobDefinition;
@@ -49,8 +45,6 @@ public class JobRequest {
 
 	public final @Nullable Consumer1<Object>				onDestruction;
 
-	public final @Nullable Continuation						continuation;
-
 	public JobRequest(JobDefinitionImpl pJobDefinition, @Nullable Object pTriggerObject, @Nullable String pResultName,
 		Set<StateCriteria> pResultStates) {
 		this(pJobDefinition, pTriggerObject, null, pResultName, pResultStates, null, null);
@@ -69,11 +63,6 @@ public class JobRequest {
 		resultStates = ImmutableSet.copyOf(pResultStates);
 		onCreation = pOnCreation;
 		onDestruction = pOnDestruction;
-		ActiveSpan activeSpan = GlobalTracer.get().activeSpan();
-		if (activeSpan == null)
-			continuation = null;
-		else
-			continuation = activeSpan.capture();
 	}
 
 	/**

@@ -61,6 +61,8 @@ import javax.enterprise.event.Event;
 import javax.enterprise.event.Observes;
 import javax.inject.Inject;
 
+import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.apache.commons.lang3.tuple.Pair;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -69,47 +71,48 @@ import org.slf4j.LoggerFactory;
 
 import io.opentracing.ActiveSpan;
 import io.opentracing.ActiveSpan.Continuation;
+import io.opentracing.util.GlobalTracer;
 import net.jodah.typetools.TypeResolver;
 
 @ApplicationScoped
 public class EngineImpl implements ReactionsEngine {
 
-	private static final Logger										sLogger				=
+	private static final Logger									sLogger				=
 		LoggerFactory.getLogger(EngineImpl.class);
 
-	private static final String										sPERSISTENT_STATE	= "persistent";
+	private static final String									sPERSISTENT_STATE	= "persistent";
 
-	private final Store												mPersistentStore;
+	private final Store											mPersistentStore;
 
-	private final Store												mTransientStore;
+	private final Store											mTransientStore;
 
-	private final CopyOnWriteArraySet<JobDefinitionImpl>			mJobs;
+	private final CopyOnWriteArraySet<JobDefinitionImpl>		mJobs;
 
-	private final ConcurrentMap<String, JobDefinitionImpl>			mJobByName;
+	private final ConcurrentMap<String, JobDefinitionImpl>		mJobByName;
 
-	private final ConcurrentMap<Class<?>, JobDefinitionImpl>		mJobByInfoClass;
+	private final ConcurrentMap<Class<?>, JobDefinitionImpl>	mJobByInfoClass;
 
 	/* Trigger tree */
 
-	private final ConcurrentMap<String, ActionNode>					mTriggers;
+	private final ConcurrentMap<String, ActionNode>				mTriggers;
 
-	private final ConcurrentMap<String, TypeNode>					mResultTree;
+	private final ConcurrentMap<String, TypeNode>				mResultTree;
 
-	private final CDIObservingExtension								mObservations;
+	private final CDIObservingExtension							mObservations;
 
-	private final ScheduledExecutorService							mExecutorService;
+	private final ScheduledExecutorService						mExecutorService;
 
-	private final Event<ReactionsEngineInitializedEvent>			mInitializedEvent;
+	private final Event<ReactionsEngineInitializedEvent>		mInitializedEvent;
 
 	/* Trackers */
 
-	private final ConcurrentMap<String, Pair<JobRequest, String>>	mPendingTrackers;
+	private final ConcurrentMap<String, PendingInfo>			mPendingTrackers;
 
-	private final ConcurrentMap<String, JobRequest>					mActiveTrackers;
+	private final ConcurrentMap<String, JobRequest>				mActiveTrackers;
 
-	private final int												mTrackerRetryInterval;
+	private final int											mTrackerRetryInterval;
 
-	private volatile @Nullable ScheduledFuture<?>					mScheduledRetry;
+	private volatile @Nullable ScheduledFuture<?>				mScheduledRetry;
 
 	@Inject
 	public EngineImpl(Toolkit pToolkit, Config pConfig, ScheduledExecutorService pExecutorService,
@@ -274,6 +277,40 @@ public class EngineImpl implements ReactionsEngine {
 		}
 	}
 
+	private static class PendingInfo {
+		public final JobRequest								request;
+
+		public volatile @Nullable String					lastError;
+
+		public transient volatile @Nullable Continuation	continuation;
+
+		public PendingInfo(JobRequest pRequest) {
+			request = pRequest;
+		}
+
+		public PendingInfo(JobRequest pRequest, @Nullable String pLastError, @Nullable Continuation pContinuation) {
+			request = pRequest;
+			lastError = pLastError;
+			continuation = pContinuation;
+		}
+
+		/**
+		 * @see java.lang.Object#equals(java.lang.Object)
+		 */
+		@Override
+		public boolean equals(@Nullable Object pObj) {
+			return EqualsBuilder.reflectionEquals(this, pObj, false);
+		}
+
+		/**
+		 * @see java.lang.Object#hashCode()
+		 */
+		@Override
+		public int hashCode() {
+			return HashCodeBuilder.reflectionHashCode(this, false);
+		}
+	}
+
 	/**
 	 * @see com.diamondq.reactions.api.ReactionsEngine#on(com.diamondq.reactions.api.JobInfo,
 	 *      com.diamondq.reactions.api.JobParamsBuilder, java.lang.String,
@@ -295,7 +332,7 @@ public class EngineImpl implements ReactionsEngine {
 		JobRequest request = new JobRequest(definition, null, pBuilder, pName, Collections.emptySet(),
 			(Consumer1<Object>) pOnCreation, (Consumer1<Object>) pOnDestruction);
 		String key = UUID.randomUUID().toString();
-		mPendingTrackers.put(key, Pair.of(request, null));
+		mPendingTrackers.put(key, new PendingInfo(request));
 		tryTracker(key, request, null);
 
 		/* If we don't have a retry running, then start the scheduler */
@@ -313,17 +350,20 @@ public class EngineImpl implements ReactionsEngine {
 		sLogger.debug("Attempting to retry all pending trackers...");
 		Set<String> trackerKeys = Sets.newHashSet(mPendingTrackers.keySet());
 		for (String key : trackerKeys) {
-			Pair<JobRequest, String> request = mPendingTrackers.get(key);
-			if (request == null)
+			PendingInfo pendingInfo = mPendingTrackers.get(key);
+			if (pendingInfo == null)
 				continue;
 
-			Continuation continuation = request.getKey().continuation;
+			Continuation continuation = pendingInfo.continuation;
 			if (continuation == null)
-				tryTracker(key, request.getKey(), request.getRight());
-			else
+				tryTracker(key, pendingInfo.request, pendingInfo.lastError);
+			else {
+				/* A continuation can only be used once */
+				pendingInfo.continuation = null;
 				try (ActiveSpan span = continuation.activate()) {
-					tryTracker(key, request.getKey(), request.getRight());
+					tryTracker(key, pendingInfo.request, pendingInfo.lastError);
 				}
+			}
 		}
 	}
 
@@ -350,18 +390,25 @@ public class EngineImpl implements ReactionsEngine {
 				catch (IOException internalEx) {
 					errorString = UUID.randomUUID().toString();
 				}
-				if (Objects.equals(errorString, pPreviousFailure) == false) {
+				if (Objects.equals(errorString, pPreviousFailure) == false)
 					sLogger.debug("Unable to resolve tracker", ex);
-					mPendingTrackers.replace(key, Pair.of(request, pPreviousFailure), Pair.of(request, errorString));
-				}
 				else
 					sLogger.debug("Unable to resolve tracker");
+
+				/* We're going to have to wait until the next cycle, so capture the span for a later retry */
+
+				ActiveSpan activeSpan = GlobalTracer.get().activeSpan();
+				Continuation c = null;
+				if (activeSpan != null)
+					c = activeSpan.capture();
+
+				mPendingTrackers.replace(key, new PendingInfo(request, errorString, c));
 				return;
 			}
 
 			/* Move this tracker from pending to active */
 
-			if (mPendingTrackers.remove(key, Pair.of(request, pPreviousFailure)) == true) {
+			if (mPendingTrackers.remove(key) != null) {
 				mActiveTrackers.put(key, request);
 				Consumer1<Object> onC = request.onCreation;
 				if (onC != null)
