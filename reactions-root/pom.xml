@@ -77,7 +77,7 @@
 		</repository>
 		<repository>
 			<id>dq-release</id>
-			<url>https://nexus.diamondq.com/repository/maven-releases/</url>
+			<url>https://nexus.diamondq.com/repository/maven-public/</url>
 			<snapshots>
 				<enabled>false</enabled>
 			</snapshots>
@@ -92,13 +92,6 @@
 			<releases>
 				<enabled>false</enabled>
 			</releases>
-		</repository>
-		<repository>
-			<id>ossrh</id>
-			<url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
-			<snapshots>
-				<enabled>false</enabled>
-			</snapshots>
 		</repository>
 	</repositories>
 	<licenses>
