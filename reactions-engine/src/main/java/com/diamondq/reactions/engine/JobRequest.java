@@ -73,6 +73,58 @@ public class JobRequest {
 		return getIdentifier();
 	}
 
+	public String getIdentifyingName() {
+		StringBuilder sb = new StringBuilder();
+		sb.append(jobDefinition.getShortName());
+		boolean displayResultName = true;
+		String tResultName = resultName;
+		if (tResultName != null) {
+			if (jobDefinition.results.size() == 1) {
+				ResultDefinition<?> rd = Iterables.getFirst(jobDefinition.results, null);
+				if (rd != null) {
+					if (tResultName.equals(rd.name) == true)
+						displayResultName = false;
+				}
+			}
+		}
+		else
+			displayResultName = false;
+		boolean displayResultStates = true;
+		if (jobDefinition.results.size() == 1) {
+			ResultDefinition<?> rd = Iterables.getFirst(jobDefinition.results, null);
+			if (rd != null) {
+				if (rd.requiredStates.equals(resultStates) == true)
+					displayResultStates = false;
+			}
+		}
+		if ((displayResultStates == true) || (displayResultName == true)) {
+			sb.append('[');
+			if (displayResultName == true)
+				sb.append("name=").append(tResultName);
+			if (displayResultStates == true) {
+				if (displayResultName == true)
+					sb.append(", ");
+				sb.append("states=");
+				sb.append(resultStates);
+			}
+			sb.append(']');
+		}
+		if (jobDefinition.variables.isEmpty() == false) {
+			sb.append('{');
+			boolean isFirst = true;
+			for (VariableDefinition<?> p : jobDefinition.variables) {
+				if (isFirst == true)
+					isFirst = false;
+				else
+					sb.append(", ");
+				sb.append(p.getIdentifier());
+			}
+			sb.append('}');
+		}
+
+		return sb.toString();
+	}
+
 	public String getIdentifier() {
 		StringBuilder sb = new StringBuilder();
 		sb.append(jobDefinition.getShortName());

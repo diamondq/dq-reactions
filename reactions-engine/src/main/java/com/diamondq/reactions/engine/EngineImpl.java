@@ -63,7 +63,6 @@ import javax.inject.Inject;
 
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
-import org.apache.commons.lang3.tuple.Pair;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
@@ -77,42 +76,46 @@ import net.jodah.typetools.TypeResolver;
 @ApplicationScoped
 public class EngineImpl implements ReactionsEngine {
 
-	private static final Logger									sLogger				=
+	private static final Logger										sLogger				=
 		LoggerFactory.getLogger(EngineImpl.class);
 
-	private static final String									sPERSISTENT_STATE	= "persistent";
+	private static final String										sPERSISTENT_STATE	= "persistent";
 
-	private final Store											mPersistentStore;
+	private final Store												mPersistentStore;
 
-	private final Store											mTransientStore;
+	private final Store												mTransientStore;
 
-	private final CopyOnWriteArraySet<JobDefinitionImpl>		mJobs;
+	private final CopyOnWriteArraySet<JobDefinitionImpl>			mJobs;
 
-	private final ConcurrentMap<String, JobDefinitionImpl>		mJobByName;
+	private final ConcurrentMap<String, JobDefinitionImpl>			mJobByName;
 
-	private final ConcurrentMap<Class<?>, JobDefinitionImpl>	mJobByInfoClass;
+	private final ConcurrentMap<Class<?>, JobDefinitionImpl>		mJobByInfoClass;
 
 	/* Trigger tree */
 
-	private final ConcurrentMap<String, ActionNode>				mTriggers;
+	private final ConcurrentMap<String, ActionNode>					mTriggers;
 
-	private final ConcurrentMap<String, TypeNode>				mResultTree;
+	private final ConcurrentMap<String, TypeNode>					mResultTree;
 
-	private final CDIObservingExtension							mObservations;
+	private final CDIObservingExtension								mObservations;
 
-	private final ScheduledExecutorService						mExecutorService;
+	private final ScheduledExecutorService							mExecutorService;
 
-	private final Event<ReactionsEngineInitializedEvent>		mInitializedEvent;
+	private final Event<ReactionsEngineInitializedEvent>			mInitializedEvent;
 
 	/* Trackers */
 
-	private final ConcurrentMap<String, PendingInfo>			mPendingTrackers;
+	private final ConcurrentMap<String, PendingInfo>				mPendingTrackers;
 
-	private final ConcurrentMap<String, JobRequest>				mActiveTrackers;
+	private final ConcurrentMap<String, JobRequest>					mActiveTrackers;
 
-	private final int											mTrackerRetryInterval;
+	private final int												mTrackerRetryInterval;
 
-	private volatile @Nullable ScheduledFuture<?>				mScheduledRetry;
+	private volatile @Nullable ScheduledFuture<?>					mScheduledRetry;
+
+	/* Running jobs */
+
+	private final ConcurrentMap<String, OnCompletionCallbacks<?>>	mRunningJobs;
 
 	@Inject
 	public EngineImpl(Toolkit pToolkit, Config pConfig, ScheduledExecutorService pExecutorService,
@@ -128,6 +131,7 @@ public class EngineImpl implements ReactionsEngine {
 
 		mPendingTrackers = Maps.newConcurrentMap();
 		mActiveTrackers = Maps.newConcurrentMap();
+		mRunningJobs = Maps.newConcurrentMap();
 
 		/* Persistent */
 
@@ -501,6 +505,14 @@ public class EngineImpl implements ReactionsEngine {
 		return ExtendedCompletableFuture.allOf(futures);
 	}
 
+	void processCallbacks(String pIdentifier, List<ExtendedCompletableFuture<Boolean>> pCallOnComplete) {
+		synchronized (this) {
+			mRunningJobs.remove(pIdentifier);
+			for (ExtendedCompletableFuture<Boolean> future : pCallOnComplete)
+				future.complete(true);
+		}
+	}
+
 	/**
 	 * Submit a given job definition for execution. This attempts to resolve all dependencies, and once they are
 	 * resolved, executes them. Once the job is queued for execution, it returns and all the work runs on a separate
@@ -511,7 +523,35 @@ public class EngineImpl implements ReactionsEngine {
 	 */
 	private <RESULT> ExtendedCompletableFuture<RESULT> submit(JobRequest pJob) {
 
-		ExtendedCompletableFuture<RESULT> result = new ExtendedCompletableFuture<>();
+		/* First, let's see if this job is already running */
+
+		OnCompletionCallbacks<RESULT> callback;
+		synchronized (this) {
+			String identifier = pJob.getIdentifyingName();
+			OnCompletionCallbacks<?> testCallback = mRunningJobs.get(identifier);
+			if (testCallback == null) {
+				OnCompletionCallbacks<?> newCallback = new OnCompletionCallbacks<RESULT>(this, identifier);
+				if ((testCallback = mRunningJobs.putIfAbsent(identifier, newCallback)) == null)
+					testCallback = newCallback;
+			}
+			else {
+
+				/* Add to the callback */
+
+				ExtendedCompletableFuture<Boolean> internalCallback = new ExtendedCompletableFuture<>();
+				ExtendedCompletableFuture<RESULT> futureResult =
+					internalCallback.thenComposeAsync((b) -> submit(pJob), mExecutorService);
+				testCallback.addCallback(internalCallback);
+				return futureResult;
+			}
+			@SuppressWarnings("unchecked")
+			OnCompletionCallbacks<RESULT> castedCallback = (OnCompletionCallbacks<RESULT>) testCallback;
+			callback = castedCallback;
+		}
+
+		ExtendedCompletableFuture<RESULT> result = new ExtendedCompletableFuture<RESULT>();
+		ExtendedCompletableFuture<RESULT> actualResult = result.handleAsync(callback, mExecutorService);
+
 		ExtendedCompletableFuture.runAsync(new Runnable() {
 
 			@Override
@@ -527,7 +567,7 @@ public class EngineImpl implements ReactionsEngine {
 			}
 			sLogger.trace("submit({}) completed", pJob.jobDefinition.getShortName());
 		});
-		return result;
+		return actualResult;
 	}
 
 	/**
@@ -541,6 +581,47 @@ public class EngineImpl implements ReactionsEngine {
 
 		if (sLogger.isDebugEnabled() == true)
 			sLogger.debug("executeIfDepends: {}", pJob.getIdentifier());
+
+		/* See if the result is cached */
+
+		boolean resultResolved = false;
+		Object resultValue = null;
+
+		for (DependentDefinition<?> dependent : pJob.jobDefinition.results) {
+
+			if (dependent.isPersistent != null) {
+				Store store = (dependent.isPersistent == true ? mPersistentStore : mTransientStore);
+				Set<Object> storeDependents = store.resolve(dependent, pJob.resultName);
+				// TODO: For now, just take the first
+				if (storeDependents.isEmpty() == false) {
+					resultValue = storeDependents.iterator().next();
+					resultResolved = true;
+				}
+			}
+			else {
+				Set<Object> storeDependents = mTransientStore.resolve(dependent, pJob.resultName);
+				// TODO: For now, just take the first
+				if (storeDependents.isEmpty() == false) {
+					resultValue = storeDependents.iterator().next();
+					resultResolved = true;
+				}
+				if (resultResolved == false) {
+					storeDependents = mPersistentStore.resolve(dependent, pJob.resultName);
+					// TODO: For now, just take the first
+					if (storeDependents.isEmpty() == false) {
+						resultValue = storeDependents.iterator().next();
+						resultResolved = true;
+					}
+				}
+			}
+		}
+
+		if (resultResolved == true) {
+			@SuppressWarnings("unchecked")
+			RESULT castedResult = (RESULT) resultValue;
+			pResult.complete(castedResult);
+			return;
+		}
 
 		List<@Nullable Object> dependents = Lists.newArrayList();
 		for (DependentDefinition<?> dependent : Iterables.concat(pJob.jobDefinition.variables,
@@ -646,7 +727,7 @@ public class EngineImpl implements ReactionsEngine {
 			if ((dependentInfo.isResolved == false) && (dependent.isStored == true)) {
 				if (dependent.isPersistent != null) {
 					Store store = (dependent.isPersistent == true ? mPersistentStore : mTransientStore);
-					Set<Object> storeDependents = store.resolve(dependent);
+					Set<Object> storeDependents = store.resolve(dependent, pJob.resultName);
 					// TODO: For now, just take the first
 					if (storeDependents.isEmpty() == false) {
 						dependentInfo.resolvedValue = storeDependents.iterator().next();
@@ -654,14 +735,14 @@ public class EngineImpl implements ReactionsEngine {
 					}
 				}
 				else {
-					Set<Object> storeDependents = mTransientStore.resolve(dependent);
+					Set<Object> storeDependents = mTransientStore.resolve(dependent, pJob.resultName);
 					// TODO: For now, just take the first
 					if (storeDependents.isEmpty() == false) {
 						dependentInfo.resolvedValue = storeDependents.iterator().next();
 						dependentInfo.isResolved = true;
 					}
 					if (dependentInfo.isResolved == false) {
-						storeDependents = mPersistentStore.resolve(dependent);
+						storeDependents = mPersistentStore.resolve(dependent, pJob.resultName);
 						// TODO: For now, just take the first
 						if (storeDependents.isEmpty() == false) {
 							dependentInfo.resolvedValue = storeDependents.iterator().next();

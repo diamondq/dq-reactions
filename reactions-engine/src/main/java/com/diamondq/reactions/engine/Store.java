@@ -173,10 +173,10 @@ public class Store {
 
 	}
 
-	public Set<Object> resolve(DependentDefinition<?> pDependent) {
+	public Set<Object> resolve(DependentDefinition<?> pDependent, @Nullable String pResultName) {
 		QueryBuilder queryBuilder = mToolkit.createNewQueryBuilder(mScope).andWhereConstant("type", WhereOperator.eq,
 			pDependent.clazz.getName());
-		String name = pDependent.name;
+		String name = pResultName == null ? pDependent.name : pResultName;
 		if (name != null)
 			queryBuilder = queryBuilder.andWhereConstant("name", WhereOperator.eq, name);
 		List<Structure> list = mToolkit.lookupStructuresByQuery(mScope, mDataDef, queryBuilder, Collections.emptyMap());
