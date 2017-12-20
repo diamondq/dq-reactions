@@ -218,6 +218,11 @@
 				<artifactId>weld-junit4</artifactId>
 				<version>1.1.0.Final</version>
 			</dependency>
+			<dependency>
+				<groupId>org.quartz-scheduler</groupId>
+				<artifactId>quartz</artifactId>
+				<version>2.3.0</version>
+			</dependency>
 		</dependencies>
 	</dependencyManagement>
 	<build>
@@ -320,5 +325,6 @@
 		<module>../reactions-engine</module>
 		<module>../reactions-jobs-common</module>
 		<module>../reactions-jobs-network</module>
+		<module>../reactions-jobs-scheduling</module>
 	</modules>
 </project>
