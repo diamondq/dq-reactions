@@ -351,8 +351,10 @@ public class EngineImpl implements ReactionsEngine {
 	}
 
 	private void retryTrackers() {
-		sLogger.debug("Attempting to retry all pending trackers...");
 		Set<String> trackerKeys = Sets.newHashSet(mPendingTrackers.keySet());
+		if (trackerKeys.isEmpty() == true)
+			return;
+		sLogger.debug("Attempting to retry all pending trackers...");
 		for (String key : trackerKeys) {
 			PendingInfo pendingInfo = mPendingTrackers.get(key);
 			if (pendingInfo == null)
