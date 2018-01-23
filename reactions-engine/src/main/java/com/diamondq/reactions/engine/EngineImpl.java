@@ -1,6 +1,7 @@
 package com.diamondq.reactions.engine;
 
 import com.diamondq.common.config.Config;
+import com.diamondq.common.injection.cdi.CachedEventExtension;
 import com.diamondq.common.lambda.future.ExtendedCompletableFuture;
 import com.diamondq.common.lambda.interfaces.Consumer1;
 import com.diamondq.common.model.interfaces.Toolkit;
@@ -52,13 +53,14 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
 import javax.enterprise.context.ApplicationScoped;
-import javax.enterprise.context.Initialized;
 import javax.enterprise.event.Event;
-import javax.enterprise.event.Observes;
+import javax.enterprise.inject.spi.CDI;
 import javax.inject.Inject;
 
 import org.apache.commons.lang3.builder.EqualsBuilder;
@@ -103,6 +105,13 @@ public class EngineImpl implements ReactionsEngine {
 
 	private final Event<ReactionsEngineInitializedEvent>			mInitializedEvent;
 
+	private final AtomicBoolean										mInitialized;
+
+	/**
+	 * All access to this field must be wrapped in a synchronized
+	 */
+	private final Set<Consumer<ReactionsEngine>>					mInitCallbacks;
+
 	/* Trackers */
 
 	private final ConcurrentMap<String, PendingInfo>				mPendingTrackers;
@@ -128,10 +137,11 @@ public class EngineImpl implements ReactionsEngine {
 		mJobs = Sets.newCopyOnWriteArraySet();
 		mJobByInfoClass = Maps.newConcurrentMap();
 		mInitializedEvent = pInitializedEvent;
-
+		mInitialized = new AtomicBoolean(false);
 		mPendingTrackers = Maps.newConcurrentMap();
 		mActiveTrackers = Maps.newConcurrentMap();
 		mRunningJobs = Maps.newConcurrentMap();
+		mInitCallbacks = Sets.newHashSet();
 
 		/* Persistent */
 
@@ -156,9 +166,25 @@ public class EngineImpl implements ReactionsEngine {
 			trackerRetryInterval = 60;
 
 		mTrackerRetryInterval = trackerRetryInterval;
+
+		CDI.current().getBeanManager().getExtension(CachedEventExtension.class)
+			.registerEventListener(CachedEventExtension.APPLICATION_SCOPED_INITIALIZED, this::init);
 	}
 
-	public void init(@Observes @Initialized(ApplicationScoped.class) Object init) {
+	/**
+	 * @see com.diamondq.reactions.api.ReactionsEngine#registerOnInitialized(java.util.function.Consumer)
+	 */
+	@Override
+	public void registerOnInitialized(Consumer<ReactionsEngine> pCallback) {
+		synchronized (this) {
+			if (mInitialized.get() == true)
+				pCallback.accept(this);
+			else
+				mInitCallbacks.add(pCallback);
+		}
+	}
+
+	public void init(String pEvent) {
 
 		sLogger.debug("Initializing all Reaction jobs...");
 
@@ -174,6 +200,12 @@ public class EngineImpl implements ReactionsEngine {
 		sLogger.debug("Firing ReactionsEngineInitializedEvent...");
 
 		mInitializedEvent.fire(new ReactionsEngineInitializedEvent());
+
+		synchronized (this) {
+			mInitialized.set(true);
+			mInitCallbacks.forEach((c) -> c.accept(this));
+			mInitCallbacks.clear();
+		}
 	}
 
 	/**

@@ -4,6 +4,7 @@ import com.diamondq.common.lambda.future.ExtendedCompletableFuture;
 import com.diamondq.common.lambda.interfaces.Consumer1;
 
 import java.util.Map;
+import java.util.function.Consumer;
 
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -64,4 +65,11 @@ public interface ReactionsEngine {
 
 	public <@NonNull T> ExtendedCompletableFuture<@Nullable Void> addToCollection(T pRecord, Action pAction,
 		String pName, Map<String, String> pStates);
+
+	/**
+	 * Register a callback to be called when the engine is fully initialized
+	 *
+	 * @param pCallback the callback
+	 */
+	public void registerOnInitialized(Consumer<ReactionsEngine> pCallback);
 }
