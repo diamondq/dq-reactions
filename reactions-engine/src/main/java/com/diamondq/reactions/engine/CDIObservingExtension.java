@@ -13,12 +13,13 @@ import java.util.function.Supplier;
 
 import javax.enterprise.event.Observes;
 import javax.enterprise.inject.spi.BeanManager;
+import javax.enterprise.inject.spi.CDI;
 import javax.enterprise.inject.spi.Extension;
 import javax.enterprise.inject.spi.ProcessManagedBean;
 
 public class CDIObservingExtension implements Extension {
 
-	private final Set<MethodSupplierPair<?>>										mJobs			=
+	private final Set<MethodSupplierPair<?>>									mJobs			=
 		Sets.newConcurrentHashSet();
 
 	private final ConcurrentMap<BeanManager, Function<Class<?>, Supplier<?>>>	mCachedFuncMap	=
@@ -42,12 +43,13 @@ public class CDIObservingExtension implements Extension {
 
 	/**
 	 * Called by the CDI system whenever a new bean is registered. Used to keep the job directory up-to-date
-	 * 
+	 *
 	 * @param pBean the bean
 	 * @param pBeanManager the bean manager
 	 */
 	protected <X> void notifyOfBean(@Observes ProcessManagedBean<X> pBean, BeanManager pBeanManager) {
 
+		CDI<Object> cdi = CDI.current();
 		@SuppressWarnings({"cast", "unchecked", "rawtypes"})
 		Class<X> beanClass = (Class<X>) (Class) pBean.getBean().getBeanClass();
 
@@ -59,7 +61,7 @@ public class CDIObservingExtension implements Extension {
 
 				@Override
 				public Supplier<X> apply(Class<X> pT) {
-					return new CDISupplier<X>(pBeanManager, pT);
+					return new CDISupplier<X>(cdi, pT);
 				}
 			};
 			@SuppressWarnings({"cast", "unchecked", "rawtypes"})
