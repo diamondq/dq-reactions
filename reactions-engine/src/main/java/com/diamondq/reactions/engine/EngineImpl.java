@@ -70,8 +70,8 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.opentracing.ActiveSpan;
-import io.opentracing.ActiveSpan.Continuation;
+import io.opentracing.Scope;
+import io.opentracing.Span;
 import io.opentracing.util.GlobalTracer;
 import net.jodah.typetools.TypeResolver;
 
@@ -314,17 +314,17 @@ public class EngineImpl implements ReactionsEngine {
 	}
 
 	private static class PendingInfo {
-		public final JobRequest								request;
+		public final JobRequest						request;
 
-		public volatile @Nullable String					lastError;
+		public volatile @Nullable String			lastError;
 
-		public transient volatile @Nullable Continuation	continuation;
+		public transient volatile @Nullable Span	continuation;
 
 		public PendingInfo(JobRequest pRequest) {
 			request = pRequest;
 		}
 
-		public PendingInfo(JobRequest pRequest, @Nullable String pLastError, @Nullable Continuation pContinuation) {
+		public PendingInfo(JobRequest pRequest, @Nullable String pLastError, @Nullable Span pContinuation) {
 			request = pRequest;
 			lastError = pLastError;
 			continuation = pContinuation;
@@ -392,13 +392,13 @@ public class EngineImpl implements ReactionsEngine {
 			if (pendingInfo == null)
 				continue;
 
-			Continuation continuation = pendingInfo.continuation;
+			Span continuation = pendingInfo.continuation;
 			if (continuation == null)
 				tryTracker(key, pendingInfo.request, pendingInfo.lastError);
 			else {
 				/* A continuation can only be used once */
 				pendingInfo.continuation = null;
-				try (ActiveSpan span = continuation.activate()) {
+				try (Scope scope = GlobalTracer.get().scopeManager().activate(continuation, true)) {
 					tryTracker(key, pendingInfo.request, pendingInfo.lastError);
 				}
 			}
@@ -435,12 +435,9 @@ public class EngineImpl implements ReactionsEngine {
 
 				/* We're going to have to wait until the next cycle, so capture the span for a later retry */
 
-				ActiveSpan activeSpan = GlobalTracer.get().activeSpan();
-				Continuation c = null;
-				if (activeSpan != null)
-					c = activeSpan.capture();
+				Span activeSpan = GlobalTracer.get().activeSpan();
 
-				mPendingTrackers.replace(key, new PendingInfo(request, errorString, c));
+				mPendingTrackers.replace(key, new PendingInfo(request, errorString, activeSpan));
 				return;
 			}
 
